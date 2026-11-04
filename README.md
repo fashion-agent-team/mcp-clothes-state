@@ -1,10 +1,50 @@
-# 비전 프록시 (server/)
+# mcp-clothes-state
+
+**clothes-state MCP 서버 · 옷 사진 분석** · 패션 에이전트(시각장애인용 음성 AI 옷 추천)의 한 부분입니다.
+
+담당: (미정)
+
+## 한눈에
+
+- 포트: 8093, 엔드포인트: `http://mcp-clothes-state:8093/mcp` (Streamable HTTP)
+- 기술: Spring Boot, Spring AI MCP Server, YOLO 파인튜닝(얼룩·찢어짐·보풀), FashionCLIP(종류·격식, 학습 없이), ONNX Runtime Java, 폴백 Gemini 3.5 Flash. 학습은 Python(Ultralytics, Roboflow 라벨링, Colab)
+- 상태 확인: `GET /actuator/health`
+
+## MCP 도구
+
+| 도구 | 하는 일 |
+| --- | --- |
+| `clothes_inspect` | 사진 한 장 → 옷마다 종류·색·격식·위치(left·center·right)·얼룩/찢어짐, 구도(framing), 조명(lighting), source(model/gemini) |
+
+입출력 JSON은 [MCP 도구 입출력](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/mcp-tools.md)를 그대로 따릅니다.
+
+## 이 레포가 지킬 것
+
+- 옷 추천 2단계에서 앱이 자동 전송한 한 장마다 agent가 부릅니다. 한 장에 두 벌이 있을 수 있습니다(비교).
+- **얼룩을 찾는 것까지가 이 서버 일**이고, 어떻게 말할지(빨기·바꾸기)는 agent의 Gemini가 정합니다.
+- 응답 모양은 지금 Workers 서버의 ClothesScan에 `position`, `source`, `modelVersion`을 더한 것. 왼쪽·오른쪽은 모두 사진(바라보는 사람) 기준.
+- 결함 확신도: 0.7 이상 그대로, 0.5~0.7은 그 사진만 Gemini에 다시 물음, 0.5 미만 버림(학습 후 조정).
+- 사진은 저장하지 않습니다.
+- 공개 원단 결함 데이터(AITEX 등)는 공장 원단 사진이라 우리 옷 사진을 직접 찍어 라벨링합니다(결함 종류마다 수백 장 목표).
+
+## 할 일
+
+- [ ] 학습용 사진 찍기·라벨링 (다 같이)
+- [ ] `training/`: YOLO 1차 학습, ONNX 내보내기
+- [ ] Spring Boot + Spring AI MCP Server 뼈대, `clothes_inspect`
+- [ ] FashionCLIP으로 종류·격식, 픽셀 평균으로 색 이름
+- [ ] Gemini 폴백 (지금 `src/prompts.ts` 프롬프트 재사용)
+- [ ] 모델 준비 전까지 아래 Workers 서버를 데모용 예비로 유지
+
+## 지금 있는 코드 (임시, Cloudflare Workers + Gemini)
+
+아래는 앱 레포 `server/`에서 옮겨 온 지금 배포된 서버입니다. Java MCP 서버가 준비되면 정리합니다.
 
 앱과 비전 LLM 사이에 두는 작은 서버입니다. **API 키는 여기에만 두고 앱에는 넣지 않습니다.** 프롬프트와 응답 형식도 여기서 관리해서, 앱을 다시 배포하지 않고 고칠 수 있게 합니다.
 
 Cloudflare Workers + Gemini API로 만든 뼈대입니다. 배포 주소는 `https://fashion-agent-vision.fashion-agent-team.workers.dev`이고, 앱은 기본으로 이 주소를 씁니다. 서버 없이 돌리려면 `--dart-define=FAKE_VISION=true`를 주면 `FakeVisionService`(예시 응답)로 돕니다.
 
-## 파일
+### 파일
 
 | 파일 | 하는 일 |
 | --- | --- |
@@ -14,7 +54,7 @@ Cloudflare Workers + Gemini API로 만든 뼈대입니다. 배포 주소는 `htt
 | `src/schema.ts` | 응답 형식 정의와 정리(모르는 값은 기본값, id는 g1·g2… 부여) |
 | `test/` | 가짜 Gemini로 하는 테스트 |
 
-## 실행
+### 실행
 
 Node 22.6 이상이 필요합니다.
 
@@ -30,7 +70,7 @@ npm run dev                    # http://localhost:8787
 
 ```bash
 flutter run --dart-define=VISION_URL=http://localhost:8787
-# 안드로이드 에뮬레이터는 http://10.0.2.2:8787
+## 안드로이드 에뮬레이터는 http://10.0.2.2:8787
 ```
 
 배포:
@@ -43,7 +83,7 @@ npm run deploy                 # 나온 https://….workers.dev 주소를 VISION
 
 모델은 `wrangler.toml`의 `GEMINI_MODEL`에서 바꿉니다. `gemini-2.5-flash`는 새로 발급한 키로는 404가 나서 `gemini-3.5-flash`를 기본으로 둡니다(2026-11-03 실제 키로 확인). 사용 가능한 모델은 `GET /v1beta/models`로 볼 수 있습니다. `APP_TOKEN` 비밀 값을 넣으면 `X-App-Token` 헤더가 같은 요청만 받습니다. 앱은 아직 이 헤더를 보내지 않으니, 토큰을 켜기 전에 `HttpVisionService`에 헤더를 추가해야 합니다.
 
-## 오류 응답
+### 오류 응답
 
 200이 아니면 앱은 "분석하지 못했어요"라고 안내하고 다시 찍게 합니다. 본문은 `{"error": {"code", "message"}}`입니다.
 
@@ -57,16 +97,16 @@ npm run deploy                 # 나온 https://….workers.dev 주소를 VISION
 
 `ai_failed`일 때 이유 보기: `message`의 `Gemini 오류 (400): …` 뒷부분을 보거나, 다른 터미널에서 `npx wrangler tail`을 켜 두고 요청을 다시 보내면 로그에 찍힙니다. 흔한 이유는 `API key not valid`(비밀 값을 잘못 붙여 넣음, `npx wrangler secret put GEMINI_API_KEY`로 다시 넣기), 모델 이름이 없음(404), 사진이 JPEG가 아님(`Unable to process input image`)입니다.
 
-## 남은 일
+### 남은 일
 
 - TODO(AI 담당): 실제 옷 사진으로 프롬프트 다듬기, `confidence` 기준이 맞는지 확인
 - TODO: 앱 `HttpVisionService`에 `X-App-Token` 헤더 추가 후 토큰 켜기
 - TODO: 무료 한도 초과(429)나 구글 쪽 혼잡(503) 때 한 번 재시도할지, 사용자에게 따로 안내할지 정하기
 - TODO(AI 담당): 손상 위치 `where`가 "사진 기준 오른쪽"처럼 나올 수 있음. 펼쳐 놓은 옷에서 왼쪽·오른쪽을 무엇 기준으로 말할지 프롬프트에 정하기
 
-## 엔드포인트
+### 엔드포인트
 
-### `POST /describe-clothes`
+#### `POST /describe-clothes`
 
 옷 검사에서 펼쳐 놓은 옷을 분석합니다. 일정·날씨에 맞는지 판단은 앱이 하고, AI는 격식과 얼룩·찢어짐 같은 보이는 사실만 돌려줍니다.
 
@@ -107,10 +147,36 @@ npm run deploy                 # 나온 https://….workers.dev 주소를 VISION
 }
 ```
 
-## 프롬프트 원칙
+### 프롬프트 원칙
 
 - **본 사실만** 답하게 합니다. "어울린다", "예쁘다" 같은 판단은 묻지도 받지도 않습니다. 판단은 앱의 `lib/styling/` 규칙이 합니다.
 - `defects`는 사진에서 실제로 보이는 것만 넣게 합니다. `where`는 "오른쪽 소매 끝", "밑단 왼쪽"처럼 손으로 찾아갈 수 있는 말로 받습니다. 애매하면 `confidence`를 낮추게 합니다. 앱은 0.7 미만이면 "손으로 확인해 보세요"라고만 말합니다.
 - 색이 조명 때문에 애매하면 `confidence`를 낮추게 합니다. 앱은 0.6 미만이면 판단하지 않고 다시 비춰 달라고 합니다.
 - `framing`은 "흐려요"가 아니라 "폰을 오른쪽으로", "한 걸음 뒤로"처럼 사용자가 바로 따라 할 수 있는 문장으로 받습니다.
 - 응답은 위 JSON 스키마로 강제합니다(LLM의 구조화 출력 기능 사용).
+
+## 공통 약속
+
+모든 레포가 지키는 약속은 앱 레포에 있습니다. **코드보다 약속 문서를 먼저 고칩니다.**
+
+- [서비스 간 약속](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/README.md): 공통 규칙, 포트, 인증(`X-User-Id`), 오류 모양, DB 스키마, 옷 추천 흐름
+- [MCP 도구 입출력](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/mcp-tools.md)
+- [앱 ↔ 게이트웨이 API (OpenAPI)](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/openapi.yaml)
+- [아키텍처와 기술 스택](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/ARCHITECTURE.md)
+
+## 버전
+
+| 항목 | 버전 |
+| --- | --- |
+| Java | 21 |
+| Spring Boot | 4.0.9 |
+| Spring Cloud | 2025.1.4 |
+| Spring AI (BOM) | 2.0.2 |
+
+## 브랜치
+
+GitFlow를 따릅니다. `develop`에서 `feature/…` 브랜치를 따서 PR로 합칩니다. 규칙은 앱 레포의 `docs/GITFLOW.md`를 봅니다.
+
+## 비밀 값
+
+API 키와 DB 비밀번호는 레포에 넣지 않습니다. 로컬은 `.env`(커밋 금지), 배포는 서버 환경 변수로 둡니다. 목록은 앱 레포 `docs/infra/.env.example`에 있습니다.

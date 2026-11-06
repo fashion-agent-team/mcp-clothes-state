@@ -29,6 +29,8 @@
 
 ## 할 일
 
+> 모델 비교 결과(YOLO11·YOLO26, 2026-11-05): [docs/model-comparison.md](docs/model-comparison.md). 추천은 YOLO26n v2.
+
 - [ ] 학습용 사진 찍기·라벨링 (다 같이)
 - [ ] `training/`: YOLO 1차 학습, ONNX 내보내기
 - [ ] Spring Boot + Spring AI MCP Server 뼈대, `clothes_inspect`

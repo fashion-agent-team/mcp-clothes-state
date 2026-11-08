@@ -7,35 +7,35 @@
 ## 한눈에
 
 - 포트: 8093, 엔드포인트: `http://mcp-clothes-state:8093/mcp` (Streamable HTTP)
-- 기술: Spring Boot, Spring AI MCP Server, YOLO 파인튜닝(얼룩·찢어짐·보풀), FashionCLIP(종류·격식, 학습 없이), ONNX Runtime Java, 폴백 Gemini 3.5 Flash. 학습은 Python(Ultralytics, Roboflow 라벨링, Colab)
+- 기술: Spring Boot, Spring AI MCP Server, YOLO 파인튜닝(얼룩·찢어짐·보풀), FashionCLIP(종류·격식, 학습 없이), ONNX Runtime Java. 외부 AI 폴백 없음(애매하면 지인 확인). 학습은 Python(Ultralytics, Roboflow 라벨링, Colab)
 - 상태 확인: `GET /actuator/health`
 
 ## MCP 도구
 
 | 도구 | 하는 일 |
 | --- | --- |
-| `clothes_inspect` | 사진 한 장 → 옷마다 종류·색·격식·위치(left·center·right)·얼룩/찢어짐, 구도(framing), 조명(lighting), source(model/gemini) |
+| `clothes_inspect` | 사진 한 장 → 옷마다 종류·색·격식·위치(left·center·right)·얼룩/찢어짐, 구도(framing), 조명(lighting), source(model/friend) |
 
 입출력 JSON은 [MCP 도구 입출력](https://github.com/fashion-agent-team/fashion-agent/blob/develop/docs/contracts/mcp-tools.md)를 그대로 따릅니다.
 
 ## 이 레포가 지킬 것
 
 - 옷 추천 2단계에서 앱이 자동 전송한 한 장마다 agent가 부릅니다. 한 장에 두 벌이 있을 수 있습니다(비교).
-- **얼룩을 찾는 것까지가 이 서버 일**이고, 어떻게 말할지(빨기·바꾸기)는 agent의 Gemini가 정합니다.
-- 응답 모양은 지금 Workers 서버의 ClothesScan에 `position`, `source`, `modelVersion`을 더한 것. 왼쪽·오른쪽은 모두 사진(바라보는 사람) 기준.
-- 결함 확신도: 0.7 이상 그대로, 0.5~0.7은 그 사진만 Gemini에 다시 물음, 0.5 미만 버림(학습 후 조정).
+- **얼룩을 찾는 것까지가 이 서버 일**이고, 어떻게 말할지(빨기·바꾸기)는 agent의 GPT가 정합니다(사진은 넘기지 않고 결과 글만).
+- 응답 모양은 지금 Workers 서버의 ClothesScan에 `position`, `source`, `modelVersion`을 더한 것. 왼쪽·오른쪽은 펼친 옷(laid)이면 사진 기준(사진 왼쪽 = 사용자 왼쪽), 입은 사진(worn)이면 입은 사람 몸 기준.
+- 결함 확신도: 0.5 이상 바로 알림, 0.3~0.5는 지인(helper)에게 확인, 0.3 미만 버림(2026-11-08 확정). 옷 사진은 GPT·Gemini로 보내지 않음.
 - 사진은 저장하지 않습니다.
 - 공개 원단 결함 데이터(AITEX 등)는 공장 원단 사진이라 우리 옷 사진을 직접 찍어 라벨링합니다(결함 종류마다 수백 장 목표).
 
 ## 할 일
 
-> 모델 비교 결과(YOLO11·YOLO26, 2026-11-05): [docs/model-comparison.md](docs/model-comparison.md). 추천은 YOLO26n v2.
+> 모델 비교 결과(YOLO11·YOLO26, 2026-11-05~08): [docs/model-comparison.md](docs/model-comparison.md). 쓰는 모델은 YOLO26n v6.
 
 - [ ] 학습용 사진 찍기·라벨링 (다 같이)
 - [ ] `training/`: YOLO 1차 학습, ONNX 내보내기
 - [ ] Spring Boot + Spring AI MCP Server 뼈대, `clothes_inspect`
 - [ ] FashionCLIP으로 종류·격식, 픽셀 평균으로 색 이름
-- [ ] Gemini 폴백 (지금 `src/prompts.ts` 프롬프트 재사용)
+- [x] ~~Gemini 폴백~~ 쓰지 않기로 함(2026-11-06, 옷 사진은 외부 AI로 보내지 않음)
 - [ ] 모델 준비 전까지 아래 Workers 서버를 데모용 예비로 유지
 
 ## 지금 있는 코드 (임시, Cloudflare Workers + Gemini)

@@ -1,0 +1,33 @@
+{
+  "_about": "Friend/family check of uncertain defects (confidence 0.3-0.5). One record per photo. save_feedback() in clothes_inspect_model.py turns a fully answered record into a YOLO training image + label: yes -> labelled defect, no -> nothing (if every spot is 'no', the photo becomes a clean negative). Photos with unanswered spots are not used.",
+  "request": {
+    "checkId": "c_20261106_0001",
+    "createdAt": "2026-11-06T15:20:00+09:00",
+    "modelVersion": "yolo26n-v6",
+    "mode": "worn",
+    "view": "front",
+    "askImage": "<jpeg base64: numbered close-ups of the uncertain spots, faces blurred>",
+    "question": "사진의 번호마다 얼룩이나 찢어진 곳이 맞는지 알려 주세요.",
+    "spots": [
+      { "askNumber": 1, "kind": "stain", "where": "오른쪽 가슴", "confidence": 0.42,
+        "box": { "x": 0.31, "y": 0.22, "w": 0.12, "h": 0.40 } },
+      { "askNumber": 2, "kind": "tear", "where": "왼쪽 소매 끝", "confidence": 0.27,
+        "box": { "x": 0.70, "y": 0.61, "w": 0.06, "h": 0.05 } }
+    ]
+  },
+  "answer": {
+    "checkId": "c_20261106_0001",
+    "answeredAt": "2026-11-06T15:24:10+09:00",
+    "answers": { "1": true, "2": false },
+    "note": "2번은 무늬예요",
+    "source": "friend"
+  },
+  "noAnswer": {
+    "_about": "Photos are never sent to GPT. With no friend set up, or no answer yet, spots keep status 'ask' and source stays 'model'; the agent says they are uncertain (e.g. '확실하지 않지만 오른쪽 가슴에 얼룩이 있을 수 있어요')."
+  },
+  "storage": {
+    "_about": "Keep the original full photo server-side only until the check is answered, then pass it with the request's spots and the answers to save_feedback(); the friend only ever sees askImage.",
+    "image": "original JPEG (not the close-up), used for the training label",
+    "label": "YOLO txt: '<class> <cx> <cy> <w> <h>' per confirmed defect, class 0 = stain, 1 = tear"
+  }
+}

@@ -12,4 +12,10 @@ public class DetectorConfig {
     OnnxDefectDetector defectDetector(ClothesStateProperties props, ResourceLoader loader) {
         return new OnnxDefectDetector(loader.getResource(props.model()), props.inputSize(), props.nmsIou());
     }
+
+    @Bean(destroyMethod = "close")
+    OnnxGarmentDetector garmentDetector(ClothesStateProperties props, ResourceLoader loader) {
+        return new OnnxGarmentDetector(loader.getResource(props.garmentModel()), props.inputSize(), props.nmsIou(),
+                props.sameGarmentIou());
+    }
 }

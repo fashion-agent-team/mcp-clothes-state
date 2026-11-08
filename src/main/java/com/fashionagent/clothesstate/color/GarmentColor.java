@@ -11,6 +11,7 @@ import java.util.List;
  * <li>laid: 사진 테두리 색을 바닥(배경)으로 보고, 가운데 80% 안에서 바닥과 색이 다른 픽셀만 옷으로 봅니다.</li>
  * <li>worn: 사람이 화면 가운데 서 있다고 보고 몸통 쪽(가로 35~65%, 세로 25~55%)을 봅니다. 자세 인식은 다음 단계.</li>
  * </ul>
+ * 옷 종류 모델이 옷 박스를 찾으면 {@link #inBox}로 박스 안만 봅니다.
  * 옷 픽셀의 중간값 색을 HSV로 바꿔 이름을 붙입니다. 조명이 노랗거나 무늬가 많은 옷은 틀릴 수 있습니다.
  */
 public final class GarmentColor {
@@ -23,6 +24,18 @@ public final class GarmentColor {
 
     public static Result of(BufferedImage img, String mode) {
         int[] rgb = "worn".equals(mode) ? region(img, 0.35, 0.25, 0.65, 0.55) : garmentPixels(img);
+        if (rgb.length == 0) {
+            return new Result("unknown", null, null);
+        }
+        return name(median(rgb));
+    }
+
+    /**
+     * 옷 박스 하나를 잘라 낸 사진의 색. laid는 박스 가장자리(바닥이 조금 보임)를 배경으로 빼고,
+     * worn은 박스 가운데(가로 25~75%, 세로 20~70%)만 봐서 팔 옆 배경·피부가 덜 섞이게 합니다.
+     */
+    public static Result inBox(BufferedImage crop, String mode) {
+        int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : garmentPixels(crop);
         if (rgb.length == 0) {
             return new Result("unknown", null, null);
         }

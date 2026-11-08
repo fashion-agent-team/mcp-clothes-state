@@ -6,8 +6,9 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * YOLO26n ONNX 출력 풀기. 출력은 [1, 6, N] 또는 [1, N, 6]이고 한 줄이
- * [중심x, 중심y, 너비, 높이, 얼룩 확률, 찢어짐 확률](모델 입력 픽셀)입니다. 512 입력이면 N = 5,376.
+ * YOLO26n ONNX 출력 풀기. 출력은 [1, 4+클래스 수, N] 또는 [1, N, 4+클래스 수]이고 한 줄이
+ * [중심x, 중심y, 너비, 높이, 클래스별 확률...](모델 입력 픽셀)입니다. 512 입력이면 N = 5,376.
+ * 얼룩 모델은 [얼룩, 찢어짐], 옷 종류 모델은 [상의, 하의, 아우터, 원피스, 신발]입니다.
  */
 public final class YoloOutput {
 
@@ -18,13 +19,18 @@ public final class YoloOutput {
     }
 
     public static List<Detection> parse(float[][] out, Letterbox lb, double minConfidence, double nmsIou) {
-        boolean channelsFirst = out.length == 4 + KINDS.length && out[0].length != 4 + KINDS.length;
+        return parse(out, lb, minConfidence, nmsIou, KINDS);
+    }
+
+    public static List<Detection> parse(float[][] out, Letterbox lb, double minConfidence, double nmsIou,
+            String[] kinds) {
+        boolean channelsFirst = out.length == 4 + kinds.length && out[0].length != 4 + kinds.length;
         int n = channelsFirst ? out[0].length : out.length;
         List<Detection> found = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             int best = -1;
             double score = 0;
-            for (int c = 0; c < KINDS.length; c++) {
+            for (int c = 0; c < kinds.length; c++) {
                 double s = channelsFirst ? out[4 + c][i] : out[i][4 + c];
                 if (s > score) {
                     score = s;
@@ -45,7 +51,7 @@ public final class YoloOutput {
             if (x2 <= x1 || y2 <= y1) {
                 continue;
             }
-            found.add(new Detection(KINDS[best], score, x1, y1, x2 - x1, y2 - y1));
+            found.add(new Detection(kinds[best], score, x1, y1, x2 - x1, y2 - y1));
         }
         return nms(found, nmsIou);
     }

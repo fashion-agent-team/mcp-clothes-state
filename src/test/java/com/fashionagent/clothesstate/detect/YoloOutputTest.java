@@ -24,6 +24,17 @@ class YoloOutputTest {
     }
 
     @Test
+    @DisplayName("rect letterbox: 학습 때처럼 짧은 변은 32의 배수까지만 채움 (1024×700 → 512×352)")
+    void rectLetterbox() {
+        var r = Images.letterbox(new BufferedImage(1024, 700, BufferedImage.TYPE_INT_RGB), 512, true);
+        assertThat(r.inputW()).isEqualTo(512);
+        assertThat(r.inputH()).isEqualTo(352);
+        assertThat(r.padY()).isEqualTo(1);
+        assertThat(r.chw()).hasSize(3 * 512 * 352);
+        assertThat(r.toRatioY(1 + 350 / 2.0)).isEqualTo(0.5, within(1e-6));
+    }
+
+    @Test
     @DisplayName("[1, 6, N] 출력: 패딩을 빼고 원본 비율로 되돌림, 기준 미만은 버림, 찢어짐은 tear")
     void channelsFirst() {
         float[][] out = new float[6][3];

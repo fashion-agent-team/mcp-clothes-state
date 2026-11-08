@@ -4,6 +4,7 @@ import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
+import ai.onnxruntime.TensorInfo;
 import com.fashionagent.clothesstate.image.Images;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -28,6 +29,8 @@ public class OnnxDefectDetector implements DefectDetector, AutoCloseable {
     private final OrtEnvironment env;
     private final OrtSession session;
     private final String inputName;
+    /** 모델 입력 높이·너비가 정해져 있지 않으면(dynamic) 학습 때처럼 직사각형으로 넣는다. */
+    private final boolean rect;
 
     public OnnxDefectDetector(Resource model, int size, double nmsIou) {
         this.size = size;
@@ -35,13 +38,17 @@ public class OnnxDefectDetector implements DefectDetector, AutoCloseable {
         OrtEnvironment e = null;
         OrtSession s = null;
         String in = null;
+        boolean dynamic = false;
         if (model != null && model.exists()) {
             try (InputStream is = model.getInputStream()) {
                 byte[] bytes = is.readAllBytes();
                 e = OrtEnvironment.getEnvironment();
                 s = e.createSession(bytes, new OrtSession.SessionOptions());
                 in = s.getInputNames().iterator().next();
-                log.info("옷 결함 모델을 읽었어요: {} ({} bytes, 입력 {}px)", model.getDescription(), bytes.length, size);
+                long[] shape = ((TensorInfo) s.getInputInfo().get(in).getInfo()).getShape();
+                dynamic = shape.length == 4 && (shape[2] < 0 || shape[3] < 0);
+                log.info("옷 결함 모델을 읽었어요: {} ({} bytes, 입력 {}px, {})", model.getDescription(), bytes.length, size,
+                        dynamic ? "직사각형" : "정사각형");
             } catch (IOException | OrtException ex) {
                 log.warn("옷 결함 모델을 읽지 못했어요: {}", ex.toString());
                 s = null;
@@ -53,6 +60,7 @@ public class OnnxDefectDetector implements DefectDetector, AutoCloseable {
         this.env = e;
         this.session = s;
         this.inputName = in;
+        this.rect = dynamic;
     }
 
     @Override
@@ -65,8 +73,9 @@ public class OnnxDefectDetector implements DefectDetector, AutoCloseable {
         if (session == null) {
             throw new IllegalStateException("model not loaded");
         }
-        Images.Letterbox lb = Images.letterbox(image, size);
-        try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(lb.chw()), new long[] {1, 3, size, size});
+        Images.Letterbox lb = Images.letterbox(image, size, rect);
+        try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(lb.chw()),
+                new long[] {1, 3, lb.inputH(), lb.inputW()});
                 OrtSession.Result r = session.run(Map.of(inputName, t))) {
             float[][][] out = (float[][][]) r.get(0).getValue();
             return YoloOutput.parse(out[0], lb, minConfidence, nmsIou);

@@ -46,38 +46,52 @@ public final class Images {
     }
 
     /**
-     * 비율을 유지해 size×size 안에 줄이고, 남는 곳은 회색(114)으로 채운 뒤 RGB 0~1 CHW 배열로 만든다
-     * (Ultralytics letterbox와 같음). 가운데 정렬.
+     * 비율을 유지해 긴 변을 size로 줄이고, 남는 곳을 회색(114)으로 채운 뒤 RGB 0~1 CHW 배열로 만든다
+     * (Ultralytics LetterBox와 같음). rect=true면 학습·평가 때처럼 짧은 변을 32의 배수까지만 채운 직사각형
+     * (예: 512×384), false면 size×size 정사각형. 가운데 정렬.
      */
-    public static Letterbox letterbox(BufferedImage img, int size) {
+    public static Letterbox letterbox(BufferedImage img, int size, boolean rect) {
         double scale = Math.min((double) size / img.getWidth(), (double) size / img.getHeight());
         int w = Math.max(1, (int) Math.round(img.getWidth() * scale));
         int h = Math.max(1, (int) Math.round(img.getHeight() * scale));
-        int padX = (size - w) / 2;
-        int padY = (size - h) / 2;
-        BufferedImage canvas = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
+        int dw = size - w;
+        int dh = size - h;
+        if (rect) {
+            dw %= 32;
+            dh %= 32;
+        }
+        int outW = w + dw;
+        int outH = h + dh;
+        int padX = (int) Math.round(dw / 2.0 - 0.1);
+        int padY = (int) Math.round(dh / 2.0 - 0.1);
+        BufferedImage canvas = new BufferedImage(outW, outH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = canvas.createGraphics();
         g.setColor(new Color(114, 114, 114));
-        g.fillRect(0, 0, size, size);
+        g.fillRect(0, 0, outW, outH);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.drawImage(img, padX, padY, w, h, null);
         g.dispose();
-        float[] chw = new float[3 * size * size];
-        int plane = size * size;
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
+        int plane = outW * outH;
+        float[] chw = new float[3 * plane];
+        for (int y = 0; y < outH; y++) {
+            for (int x = 0; x < outW; x++) {
                 int rgb = canvas.getRGB(x, y);
-                int i = y * size + x;
+                int i = y * outW + x;
                 chw[i] = ((rgb >> 16) & 0xFF) / 255f;
                 chw[plane + i] = ((rgb >> 8) & 0xFF) / 255f;
                 chw[2 * plane + i] = (rgb & 0xFF) / 255f;
             }
         }
-        return new Letterbox(chw, scale, padX, padY, img.getWidth(), img.getHeight());
+        return new Letterbox(chw, outW, outH, scale, padX, padY, img.getWidth(), img.getHeight());
+    }
+
+    /** 정사각형 입력(size×size). */
+    public static Letterbox letterbox(BufferedImage img, int size) {
+        return letterbox(img, size, false);
     }
 
     /** 모델 입력과, 모델 좌표(입력 픽셀)를 원본 사진 비율(0~1)로 되돌리는 값. */
-    public record Letterbox(float[] chw, double scale, int padX, int padY, int width, int height) {
+    public record Letterbox(float[] chw, int inputW, int inputH, double scale, int padX, int padY, int width, int height) {
 
         public double toRatioX(double modelX) {
             return clamp((modelX - padX) / scale / width);

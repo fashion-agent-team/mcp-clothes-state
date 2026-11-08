@@ -32,15 +32,33 @@
 > 모델 비교 결과(YOLO11·YOLO26, 2026-11-05~08): [docs/model-comparison.md](docs/model-comparison.md). 쓰는 모델은 YOLO26n v6.
 
 - [ ] 학습용 사진 찍기·라벨링 (다 같이)
-- [ ] `training/`: YOLO 1차 학습, ONNX 내보내기
-- [ ] Spring Boot + Spring AI MCP Server 뼈대, `clothes_inspect`
+- [x] `training/`: YOLO 학습, ONNX 내보내기 (v6, 출처는 [training/DATA_SOURCES.md](training/DATA_SOURCES.md))
+- [x] Spring Boot + Spring AI MCP Server, `clothes_inspect` (결함 찾기·위치·지인 확인 후보)
+- [ ] 입은 사진 위치를 자세 인식(pose)으로 더 정확하게(지금은 사진을 셋으로 나눈 대략적 위치)
+- [ ] 같은 옷에서 지인이 "아니야"라고 한 자리 다시 안 묻기(약속 문서에 입력 추가 필요)
 - [ ] FashionCLIP으로 종류·격식, 픽셀 평균으로 색 이름
 - [x] ~~Gemini 폴백~~ 쓰지 않기로 함(2026-11-06, 옷 사진은 외부 AI로 보내지 않음)
 - [ ] 모델 준비 전까지 아래 Workers 서버를 데모용 예비로 유지
 
+## Java MCP 서버 (clothes_inspect)
+
+`src/main/java`. 우리가 학습한 YOLO26n v6(`src/main/resources/models/yolo26n_v6.onnx`)를 ONNX Runtime으로 서버 안에서 돌립니다. 사진은 외부 AI로 보내지 않고 저장하지 않습니다.
+
+```bash
+./gradlew test       # 테스트(모델 대신 가짜 검출기를 씀)
+./gradlew bootRun    # http://localhost:8093/mcp, 상태 확인 GET /actuator/health
+```
+
+- 확신도 0.5 이상은 `defects`(바로 알림), 0.3~0.5는 `pendingHelper.candidates`(지인 확인 후보), 0.3 미만은 버립니다. `application.yml`의 `clothes.*`에서 바꿉니다.
+- 사진은 학습 때와 같게 비율을 유지해 긴 변 512, 짧은 변은 32의 배수까지만 회색으로 채워 넣습니다. 그래서 확신도가 학습·평가 때(PyTorch)와 같습니다.
+- 옷 종류·색·격식은 아직 만들지 않아 `category: other`, `colorFamily`·`formality: unknown`이고, 사진 전체를 옷 한 벌(`g1`)로 봅니다.
+- `where`: `laid`는 사진 기준(사진 왼쪽 = 사용자 왼쪽), `worn`은 입은 사람 몸 기준(앞모습은 사진 오른쪽이 그 사람의 왼쪽).
+- 어두우면 `lighting: dark`, 모델 파일이 없으면 `{"error": {"code": "not_ready"}}`.
+- 모델은 CC BY 4.0 데이터와 Ultralytics(AGPL-3.0) 사전학습 가중치로 학습했습니다. 출처는 [training/DATA_SOURCES.md](training/DATA_SOURCES.md).
+
 ## 지금 있는 코드 (임시, Cloudflare Workers + Gemini)
 
-아래는 앱 레포 `server/`에서 옮겨 온 지금 배포된 서버입니다. Java MCP 서버가 준비되면 정리합니다.
+아래는 앱 레포 `server/`에서 옮겨 온 예전 서버입니다. 위 Java MCP 서버로 바꾸면 정리합니다.
 
 앱과 비전 LLM 사이에 두는 작은 서버입니다. **API 키는 여기에만 두고 앱에는 넣지 않습니다.** 프롬프트와 응답 형식도 여기서 관리해서, 앱을 다시 배포하지 않고 고칠 수 있게 합니다.
 

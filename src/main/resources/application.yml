@@ -1,0 +1,30 @@
+server:
+  port: 8093
+
+spring:
+  application:
+    name: mcp-clothes-state
+  ai:
+    mcp:
+      server:
+        name: mcp-clothes-state
+        version: 0.1.0
+        type: sync
+        protocol: streamable
+        streamable-http:
+          mcp-endpoint: /mcp
+        instructions: 옷 사진에서 얼룩과 찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다.
+
+# 기준값: docs/model-comparison.md "최종 결정" (정지원 2026-11-08)
+clothes:
+  model: ${CLOTHES_MODEL:classpath:models/yolo26n_v6.onnx}
+  model-version: yolo26n-v6
+  tell-threshold: 0.5
+  ask-threshold: 0.3
+  max-image-bytes: 8MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

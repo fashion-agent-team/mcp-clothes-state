@@ -36,7 +36,8 @@
 - [x] Spring Boot + Spring AI MCP Server, `clothes_inspect` (결함 찾기·위치·지인 확인 후보)
 - [ ] 입은 사진 위치를 자세 인식(pose)으로 더 정확하게(지금은 사진을 셋으로 나눈 대략적 위치)
 - [ ] 같은 옷에서 지인이 "아니야"라고 한 자리 다시 안 묻기(약속 문서에 입력 추가 필요)
-- [ ] FashionCLIP으로 종류·격식, 픽셀 평균으로 색 이름
+- [x] 픽셀로 색 이름
+- [ ] 옷 종류·격식(방법 정하는 중)
 - [x] ~~Gemini 폴백~~ 쓰지 않기로 함(2026-11-06, 옷 사진은 외부 AI로 보내지 않음)
 - [ ] 모델 준비 전까지 아래 Workers 서버를 데모용 예비로 유지
 
@@ -51,7 +52,8 @@
 
 - 확신도 0.5 이상은 `defects`(바로 알림), 0.3~0.5는 `pendingHelper.candidates`(지인 확인 후보), 0.3 미만은 버립니다. `application.yml`의 `clothes.*`에서 바꿉니다.
 - 사진은 학습 때와 같게 비율을 유지해 긴 변 512, 짧은 변은 32의 배수까지만 회색으로 채워 넣습니다. 그래서 확신도가 학습·평가 때(PyTorch)와 같습니다.
-- 옷 종류·색·격식은 아직 만들지 않아 `category: other`, `colorFamily`·`formality: unknown`이고, 사진 전체를 옷 한 벌(`g1`)로 봅니다.
+- 색(`colorFamily`·`colorName`·`tone`)은 학습 없이 픽셀로 정합니다. 내려놓은 옷은 사진 테두리를 바닥으로 보고 바닥과 다른 색만, 입은 사진은 화면 가운데 몸통 쪽을 봅니다. 노란 조명이나 무늬 옷은 틀릴 수 있습니다.
+- 옷 종류·격식은 아직 만들지 않아 `category: other`, `formality: unknown`이고, 사진 전체를 옷 한 벌(`g1`)로 봅니다.
 - `where`: `laid`는 사진 기준(사진 왼쪽 = 사용자 왼쪽), `worn`은 입은 사람 몸 기준(앞모습은 사진 오른쪽이 그 사람의 왼쪽).
 - 어두우면 `lighting: dark`, 모델 파일이 없으면 `{"error": {"code": "not_ready"}}`.
 - 모델은 CC BY 4.0 데이터와 Ultralytics(AGPL-3.0) 사전학습 가중치로 학습했습니다. 출처는 [training/DATA_SOURCES.md](training/DATA_SOURCES.md).

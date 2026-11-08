@@ -2,6 +2,7 @@ package com.fashionagent.clothesstate.inspect;
 
 import com.fashionagent.clothesstate.ClothesStateException;
 import com.fashionagent.clothesstate.ClothesStateProperties;
+import com.fashionagent.clothesstate.color.GarmentColor;
 import com.fashionagent.clothesstate.detect.DefectDetector;
 import com.fashionagent.clothesstate.detect.Detection;
 import com.fashionagent.clothesstate.image.Images;
@@ -60,7 +61,9 @@ public class ClothesInspectService {
                         new InspectResult.Box(round(d.x()), round(d.y()), round(d.w()), round(d.h()))));
             }
         }
-        var garment = new InspectResult.Garment(GARMENT_ID, "other", "옷", null, "unknown", null, null, null, null,
+        GarmentColor.Result color = GarmentColor.of(img, m);
+        var garment = new InspectResult.Garment(GARMENT_ID, "other", "옷", color.colorName(), color.colorFamily(),
+                color.tone(), null, null, null,
                 "unknown", defects, new InspectResult.Box(0, 0, 1, 1), m.equals("laid") ? "center" : null, null);
         var pending = candidates.isEmpty() ? null
                 : new InspectResult.PendingHelper(GARMENT_ID, candidates, "확실하지 않은 부분이 있어요.");

@@ -18,7 +18,7 @@ import org.springframework.util.unit.DataSize;
 class ClothesInspectServiceTest {
 
     private final ClothesStateProperties props = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.3, 0.5,
-            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion5", 0.4, 0.7, 6);
+            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion5", 0.4, 0.25, 0.7, 6);
     private final FakeDetector detector = new FakeDetector();
     private final FakeGarmentDetector garments = new FakeGarmentDetector();
     private final ClothesInspectService service = new ClothesInspectService(props, detector, garments);
@@ -93,7 +93,7 @@ class ClothesInspectServiceTest {
         garments.next = List.of(
                 new Detection("bottom", 0.88, 0.55, 0.10, 0.40, 0.80),
                 new Detection("top", 0.91, 0.05, 0.10, 0.40, 0.60),
-                new Detection("shoes", 0.30, 0.40, 0.90, 0.10, 0.05));
+                new Detection("shoes", 0.20, 0.40, 0.90, 0.10, 0.05));
         detector.next = List.of(
                 new Detection("stain", 0.82, 0.38, 0.12, 0.04, 0.04),
                 new Detection("tear", 0.42, 0.85, 0.75, 0.05, 0.05));
@@ -123,6 +123,7 @@ class ClothesInspectServiceTest {
         garments.ready = true;
         garments.next = List.of(new Detection("top", 0.2, 0.1, 0.1, 0.5, 0.5));
         InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("other");
         assertThat(r.garments()).singleElement().satisfies(g -> {
             assertThat(g.category()).isEqualTo("other");
             assertThat(g.box()).isEqualTo(new InspectResult.Box(0, 0, 1, 1));
@@ -148,5 +149,14 @@ class ClothesInspectServiceTest {
         InspectResult r = service.inspect(this.photo, "worn", "front");
         assertThat(r.garments()).extracting(InspectResult.Garment::category).containsExactly("top", "shoes");
         assertThat(r.garments()).allSatisfy(g -> assertThat(g.position()).isNull());
+    }
+
+    @Test
+    @DisplayName("내려놓은 옷은 0.25부터 옷으로 보고, 입은 사진은 0.4부터")
+    void laidThreshold() {
+        garments.ready = true;
+        garments.next = List.of(new Detection("top", 0.33, 0.1, 0.1, 0.8, 0.8));
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().category()).isEqualTo("top");
+        assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("other");
     }
 }

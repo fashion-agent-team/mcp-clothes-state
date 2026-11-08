@@ -108,7 +108,8 @@ public class ClothesInspectService {
     private List<Slot> findGarments(BufferedImage img, String mode) {
         List<Slot> slots = new ArrayList<>();
         if (garments.ready()) {
-            for (Detection d : garments.detect(img, props.garmentThreshold())) {
+            double min = "laid".equals(mode) ? props.laidGarmentThreshold() : props.garmentThreshold();
+            for (Detection d : garments.detect(img, min)) {
                 if (slots.size() >= props.maxGarments()) {
                     break;
                 }

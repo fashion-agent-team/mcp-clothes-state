@@ -32,8 +32,13 @@ public record ClothesStateProperties(
         @DefaultValue("classpath:models/yolo26n_fashion5.onnx") String garmentModel,
         /** 옷 종류 모델 이름(modelVersion 뒤에 붙음). */
         @DefaultValue("yolo26n-fashion5") String garmentModelVersion,
-        /** 옷으로 볼 최소 확신도. */
+        /** 입은 사진에서 옷으로 볼 최소 확신도. */
         @DefaultValue("0.4") double garmentThreshold,
+        /**
+         * 내려놓은 옷 사진의 최소 확신도. 모델이 내려놓은 옷에는 확신도를 낮게 주고(0.33~0.93), 종류는 틀려도 얼룩처럼
+         * 위험하지 않아 낮게 둡니다.
+         */
+        @DefaultValue("0.25") double laidGarmentThreshold,
         /** 종류가 달라도 박스가 이만큼(IoU) 겹치면 같은 옷으로 봄. */
         @DefaultValue("0.7") double sameGarmentIou,
         /** 한 사진에서 돌려줄 옷 최대 개수. */

@@ -26,6 +26,7 @@ clothes:
   garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion5.onnx}
   garment-model-version: yolo26n-fashion5
   garment-threshold: 0.4
+  laid-garment-threshold: 0.25
 
 management:
   endpoints:

@@ -18,7 +18,8 @@ import org.springframework.util.unit.DataSize;
 class ClothesInspectServiceTest {
 
     private final ClothesStateProperties props = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.3, 0.5,
-            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion5", 0.4, 0.25, 0.7, 6);
+            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
+            List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
     private final FakeDetector detector = new FakeDetector();
     private final FakeGarmentDetector garments = new FakeGarmentDetector();
     private final ClothesInspectService service = new ClothesInspectService(props, detector, garments);
@@ -99,7 +100,7 @@ class ClothesInspectServiceTest {
                 new Detection("tear", 0.42, 0.85, 0.75, 0.05, 0.05));
         String photo = Photos.halves(new Color(250, 250, 250), new Color(15, 30, 90), new Color(30, 30, 30));
         InspectResult r = service.inspect(photo, "laid", null);
-        assertThat(r.modelVersion()).isEqualTo("yolo26n-v6+yolo26n-fashion5");
+        assertThat(r.modelVersion()).isEqualTo("yolo26n-v6+yolo26n-fashion12");
         assertThat(r.garments()).extracting(InspectResult.Garment::id, InspectResult.Garment::category,
                 InspectResult.Garment::name, InspectResult.Garment::position).containsExactly(
                         org.assertj.core.groups.Tuple.tuple("g1", "top", "상의", "left"),
@@ -133,8 +134,8 @@ class ClothesInspectServiceTest {
     @Test
     @DisplayName("겹친 두 옷이면 결함은 더 작은 옷(안쪽)에, worn은 위쪽 옷부터")
     void owner() {
-        var outer = new ClothesInspectService.Slot("outer", new InspectResult.Box(0.1, 0.1, 0.8, 0.6), 0.9, false);
-        var top = new ClothesInspectService.Slot("top", new InspectResult.Box(0.35, 0.15, 0.3, 0.4), 0.8, false);
+        var outer = new ClothesInspectService.Slot(GarmentKind.of("outer"), new InspectResult.Box(0.1, 0.1, 0.8, 0.6), 0.9, false);
+        var top = new ClothesInspectService.Slot(GarmentKind.of("top"), new InspectResult.Box(0.35, 0.15, 0.3, 0.4), 0.8, false);
         assertThat(ClothesInspectService.owner(List.of(outer, top), new Detection("stain", 0.7, 0.45, 0.3, 0.05, 0.05)))
                 .isSameAs(top);
         assertThat(ClothesInspectService.owner(List.of(outer, top), new Detection("stain", 0.7, 0.15, 0.3, 0.05, 0.05)))
@@ -158,5 +159,21 @@ class ClothesInspectServiceTest {
         garments.next = List.of(new Detection("top", 0.33, 0.1, 0.1, 0.8, 0.8));
         assertThat(service.inspect(photo, "laid", null).garments().getFirst().category()).isEqualTo("top");
         assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("other");
+    }
+
+    @Test
+    @DisplayName("세부 종류는 category·이름·격식·소재로 바뀜")
+    void fineKinds() {
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("sweater", 0.8, 0.05, 0.1, 0.4, 0.6),
+                new Detection("shorts", 0.7, 0.55, 0.1, 0.4, 0.8));
+        var g = service.inspect(photo, "laid", null).garments();
+        assertThat(g).extracting(InspectResult.Garment::category, InspectResult.Garment::name,
+                InspectResult.Garment::formality, InspectResult.Garment::material).containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("top", "니트", "unknown", "니트"),
+                        org.assertj.core.groups.Tuple.tuple("bottom", "반바지", "casual", null));
+        assertThat(GarmentKind.of("coat")).isEqualTo(new GarmentKind("outer", "코트", "smart", null));
+        assertThat(GarmentKind.of("모름")).isEqualTo(GarmentKind.OTHER);
     }
 }

@@ -22,9 +22,11 @@ clothes:
   tell-threshold: 0.5
   ask-threshold: 0.3
   max-image-bytes: 8MB
-  # 옷 종류(상의·하의·아우터·원피스·신발). Fashionpedia(CC BY 4.0)로 학습. 파일이 없으면 사진 전체를 옷 한 벌로 봄.
-  garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion5.onnx}
-  garment-model-version: yolo26n-fashion5
+  # 옷 종류(셔츠·티셔츠·니트·가디건·자켓·코트·조끼·바지·반바지·치마·원피스·신발). Fashionpedia(CC BY 4.0)로 학습. 파일이 없으면 사진 전체를 옷 한 벌로 봄.
+  garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion12.onnx}
+  garment-model-version: yolo26n-fashion12
+  # 학습 클래스 순서. 5종 모델이면 top,bottom,outer,dress,shoes
+  garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
   garment-threshold: 0.4
   laid-garment-threshold: 0.25
 

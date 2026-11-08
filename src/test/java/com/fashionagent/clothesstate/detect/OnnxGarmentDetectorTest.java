@@ -21,14 +21,16 @@ class OnnxGarmentDetectorTest {
     @Test
     @DisplayName("클래스 순서는 학습 순서 = 약속 문서 category")
     void kinds() {
-        assertThat(OnnxGarmentDetector.KINDS).containsExactly("top", "bottom", "outer", "dress", "shoes");
+        assertThat(OnnxGarmentDetector.KINDS5).containsExactly("top", "bottom", "outer", "dress", "shoes");
+        assertThat(OnnxGarmentDetector.KINDS12).containsExactly("shirt", "tshirt", "sweater", "cardigan", "jacket",
+                "coat", "vest", "pants", "shorts", "skirt", "dress", "shoes");
     }
 
     @Test
     @DisplayName("모델 파일이 없으면 준비 안 됨")
     void missingModel() {
         var d = new OnnxGarmentDetector(new org.springframework.core.io.ClassPathResource("models/none.onnx"), 512,
-                0.5, 0.7);
+                0.5, 0.7, OnnxGarmentDetector.KINDS12);
         assertThat(d.ready()).isFalse();
     }
 }

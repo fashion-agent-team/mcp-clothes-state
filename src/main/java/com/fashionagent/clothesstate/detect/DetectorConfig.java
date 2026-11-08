@@ -16,6 +16,7 @@ public class DetectorConfig {
     @Bean(destroyMethod = "close")
     OnnxGarmentDetector garmentDetector(ClothesStateProperties props, ResourceLoader loader) {
         return new OnnxGarmentDetector(loader.getResource(props.garmentModel()), props.inputSize(), props.nmsIou(),
-                props.sameGarmentIou());
+                props.sameGarmentIou(),
+                props.garmentClasses().toArray(String[]::new));
     }
 }

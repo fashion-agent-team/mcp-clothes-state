@@ -34,8 +34,6 @@ public class ClothesInspectService {
     private static final Set<String> MODES = Set.of("laid", "worn");
     private static final Set<String> VIEWS = Set.of("front", "side", "back");
     private static final InspectResult.Box WHOLE = new InspectResult.Box(0, 0, 1, 1);
-    private static final Map<String, String> NAMES = Map.of(
-            "top", "상의", "bottom", "하의", "outer", "아우터", "dress", "원피스", "shoes", "신발", "other", "옷");
 
     private final ClothesStateProperties props;
     private final DefectDetector detector;
@@ -94,8 +92,9 @@ public class ClothesInspectService {
             Slot s = slots.get(i);
             s.id = "g" + (i + 1);
             GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : GarmentColor.inBox(crop(img, s.box), m);
-            out.add(new InspectResult.Garment(s.id, s.category, NAMES.get(s.category), color.colorName(),
-                    color.colorFamily(), color.tone(), null, null, null, "unknown", List.copyOf(s.defects),
+            GarmentKind k = s.kind;
+            out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
+                    color.colorFamily(), color.tone(), null, k.material(), null, k.formality(), List.copyOf(s.defects),
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence));
         }
         var pending = topCandidate == null ? null
@@ -113,11 +112,11 @@ public class ClothesInspectService {
                 if (slots.size() >= props.maxGarments()) {
                     break;
                 }
-                slots.add(new Slot(d.kind(), box(d), round(d.confidence()), false));
+                slots.add(new Slot(GarmentKind.of(d.kind()), box(d), round(d.confidence()), false));
             }
         }
         if (slots.isEmpty()) {
-            slots.add(new Slot("other", WHOLE, null, true));
+            slots.add(new Slot(GarmentKind.OTHER, WHOLE, null, true));
             return slots;
         }
         Comparator<Slot> order = "worn".equals(mode)
@@ -184,15 +183,15 @@ public class ClothesInspectService {
 
     /** 응답을 만드는 동안 옷 한 벌. */
     static final class Slot {
-        final String category;
+        final GarmentKind kind;
         final InspectResult.Box box;
         final Double confidence;
         final boolean whole;
         final List<InspectResult.Defect> defects = new ArrayList<>();
         String id;
 
-        Slot(String category, InspectResult.Box box, Double confidence, boolean whole) {
-            this.category = category;
+        Slot(GarmentKind kind, InspectResult.Box box, Double confidence, boolean whole) {
+            this.kind = kind;
             this.box = box;
             this.confidence = confidence;
             this.whole = whole;

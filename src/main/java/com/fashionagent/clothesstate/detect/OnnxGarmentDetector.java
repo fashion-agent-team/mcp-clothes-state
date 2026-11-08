@@ -7,19 +7,22 @@ import java.util.List;
 import org.springframework.core.io.Resource;
 
 /**
- * 옷 종류 모델(YOLO26n, Fashionpedia CC BY 4.0로 학습, 5종). 입은 사진은 잘 찾고, 내려놓은 옷은 아직 약합니다
+ * 옷 종류 모델(YOLO26n, Fashionpedia CC BY 4.0로 학습). 클래스 순서는 clothes.garment-classes로 맞춥니다. 입은 사진은 잘 찾고, 내려놓은 옷은 아직 약합니다
  * (2026-11-09 평가). 모델 파일이 없으면 {@link #ready()}가 false이고, clothes_inspect는 사진 전체를 옷 한 벌로 봅니다.
  */
 public class OnnxGarmentDetector implements GarmentDetector, AutoCloseable {
 
-    /** 학습 클래스 순서 = 약속 문서 category 이름. */
-    static final String[] KINDS = {"top", "bottom", "outer", "dress", "shoes"};
+    /** 5종 모델의 학습 클래스 순서. */
+    static final String[] KINDS5 = {"top", "bottom", "outer", "dress", "shoes"};
+    /** 세부 12종 모델의 학습 클래스 순서(기본값, application.yml clothes.garment-classes). */
+    public static final String[] KINDS12 = {"shirt", "tshirt", "sweater", "cardigan", "jacket", "coat", "vest", "pants",
+            "shorts", "skirt", "dress", "shoes"};
 
     private final OnnxYolo yolo;
     private final double sameGarmentIou;
 
-    public OnnxGarmentDetector(Resource model, int size, double nmsIou, double sameGarmentIou) {
-        this.yolo = new OnnxYolo(model, size, nmsIou, KINDS, "옷 종류");
+    public OnnxGarmentDetector(Resource model, int size, double nmsIou, double sameGarmentIou, String[] classes) {
+        this.yolo = new OnnxYolo(model, size, nmsIou, classes, "옷 종류");
         this.sameGarmentIou = sameGarmentIou;
     }
 

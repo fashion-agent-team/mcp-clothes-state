@@ -29,9 +29,9 @@ public record ClothesStateProperties(
         /** 사진 base64를 풀었을 때 최대 크기. 앱은 약 6MB까지 보냄. */
         @DefaultValue("8MB") DataSize maxImageBytes,
         /** 옷 종류 모델 위치. 바꾸려면 환경 변수 CLOTHES_GARMENT_MODEL. 없으면 사진 전체를 옷 한 벌(other)로 봄. */
-        @DefaultValue("classpath:models/yolo26n_fashion5.onnx") String garmentModel,
+        @DefaultValue("classpath:models/yolo26n_fashion12.onnx") String garmentModel,
         /** 옷 종류 모델 이름(modelVersion 뒤에 붙음). */
-        @DefaultValue("yolo26n-fashion5") String garmentModelVersion,
+        @DefaultValue("yolo26n-fashion12") String garmentModelVersion,
         /** 입은 사진에서 옷으로 볼 최소 확신도. */
         @DefaultValue("0.4") double garmentThreshold,
         /**
@@ -42,5 +42,8 @@ public record ClothesStateProperties(
         /** 종류가 달라도 박스가 이만큼(IoU) 겹치면 같은 옷으로 봄. */
         @DefaultValue("0.7") double sameGarmentIou,
         /** 한 사진에서 돌려줄 옷 최대 개수. */
-        @DefaultValue("6") int maxGarments) {
+        @DefaultValue("6") int maxGarments,
+        /** 옷 종류 모델의 클래스 순서(학습 순서). 5종 모델을 쓰면 top,bottom,outer,dress,shoes. */
+        @DefaultValue({"shirt", "tshirt", "sweater", "cardigan", "jacket", "coat", "vest", "pants", "shorts", "skirt",
+                "dress", "shoes"}) java.util.List<String> garmentClasses) {
 }

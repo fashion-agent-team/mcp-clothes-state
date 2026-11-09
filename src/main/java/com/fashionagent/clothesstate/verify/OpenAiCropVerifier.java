@@ -63,16 +63,13 @@ public class OpenAiCropVerifier implements CropVerifier {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
-            for (int attempt = 1; ; attempt++) {
-                HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-                Verdict v = res.statusCode() == 200 ? parse(res.body(), props.model()) : null;
-                if (v != null || attempt >= 2 || (res.statusCode() >= 400 && res.statusCode() < 500 && res.statusCode() != 429)) {
-                    if (v == null) {
-                        log.warn("GPT 확인 실패: HTTP {}", res.statusCode());
-                    }
-                    return v;
-                }
+            // 다시 보내지 않음: 기다리는 시간을 timeout(3초) 안으로 묶으려고. 실패하면 확인하지 못한 후보로 둡니다.
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            Verdict v = res.statusCode() == 200 ? parse(res.body(), props.model()) : null;
+            if (v == null) {
+                log.warn("GPT 확인 실패: HTTP {}", res.statusCode());
             }
+            return v;
         } catch (IOException | RuntimeException e) {
             log.warn("GPT 확인 실패: {}", e.getClass().getSimpleName());
             return null;

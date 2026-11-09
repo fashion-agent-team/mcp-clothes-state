@@ -37,8 +37,8 @@ import org.springframework.stereotype.Service;
  * <li>얼룩·찢어짐은 박스 중심이 들어가는 옷(여럿이면 가장 작은 옷)에 붙이고, where는 그 옷 박스 안 위치로 씁니다.</li>
  * <li>확신도 tell 이상은 defects(바로 알림, checkedBy=model). ask~tell은 결함 조각을 GPT에게 물어 얼룩·찢어짐이면
  * defects(checkedBy=gpt), 아니라면 버립니다. 그 아래는 버립니다(기준 0.5 / 0.2, 정지원 2026-11-09).</li>
- * <li>키가 없거나 GPT가 답하지 못한 후보, 입은 사진에서 얼굴이 들어갈 수 있는 위쪽 후보는 예전처럼 pendingHelper로
- * 돌려줍니다. 한 벌에 한 번만 묻는 약속이라 가장 확신도 높은 후보가 있는 옷 한 벌의 후보만 담습니다.</li>
+ * <li>키가 없거나 동의하지 않았거나 GPT가 3초 안에 답하지 못한 후보, 입은 사진에서 얼굴이 들어갈 수 있는 위쪽 후보는
+ * 예전처럼 0.3 이상만 pendingHelper로 돌려줍니다. 한 벌에 한 번만 묻는 약속이라 가장 확신도 높은 후보가 있는 옷 한 벌의 후보만 담습니다.</li>
  * </ul>
  */
 @Service
@@ -133,6 +133,9 @@ public class ClothesInspectService {
                 }
                 continue;
             }
+            if (d.confidence() < gpt.fallbackAskThreshold()) {
+                continue; // GPT로 확인하지 못한 0.2~0.3은 예전처럼 버림("확실하지 않아요"가 너무 잦지 않게)
+            }
             candidateCount++;
             candidates.computeIfAbsent(s, k -> new ArrayList<>()).add(new InspectResult.Candidate(d.kind(),
                     where, conf, box(d)));
@@ -195,20 +198,26 @@ public class ClothesInspectService {
                     }
                 }));
             }
+            // 전체를 timeout 한 번(+조금) 안에 끝냄. 늦은 것은 확인하지 못한 후보로 둡니다.
+            long deadline = System.nanoTime() + gpt.timeout().toNanos() + 500_000_000L;
             for (int i = 0; i < futures.size(); i++) {
                 Future<CropVerifier.Verdict> f = futures.get(i);
                 if (f == null) {
                     continue;
                 }
                 try {
-                    out.set(i, f.get());
+                    out.set(i, f.get(Math.max(0, deadline - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
+                } catch (java.util.concurrent.TimeoutException e) {
+                    f.cancel(true);
+                    log.warn("GPT 확인 시간 넘김");
                 } catch (java.util.concurrent.ExecutionException e) {
                     log.warn("GPT 확인 실패: {}", e.getCause().getClass().getSimpleName());
                 }
             }
+            pool.shutdownNow();
         }
         return out;
     }

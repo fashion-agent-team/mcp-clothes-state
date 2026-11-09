@@ -34,7 +34,7 @@ class ClothesInspectServiceTest {
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
         var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
-                0.3, 512, 64, 0, 0.25, tmp.toString());
+                0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30);
         service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt));
     }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
@@ -124,6 +124,50 @@ class ClothesInspectServiceTest {
         var big = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0, 0, 1, 1), 0.3, 64, 512);
         assertThat(big.getWidth()).isEqualTo(512);
         assertThat(big.getHeight()).isEqualTo(256);
+    }
+
+    @Test
+    @DisplayName("기준 0.2: GPT를 쓰면 0.2~0.3도 묻고, 못 쓰면 0.3 미만은 예전처럼 버림. 3초(여기선 0.2초)를 넘기면 확인 못 한 것으로")
+    void fallbackAndTimeout() {
+        var p02 = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.2, 0.5, 5, 25, DataSize.ofMegabytes(8),
+                "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
+                List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
+                0.3, 0.25, "", 30);
+        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt));
+        verifier.ready = true;
+        // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
+        assertThat(svc.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
+        // GPT 씀: 0.41·0.33·0.20 세 개를 물음
+        svc.inspect(photo, null, null, true);
+        assertThat(verifier.sizes).hasSize(3);
+        // GPT가 늦으면 확인 못 한 것으로(0.3 이상만 후보)
+        verifier.answer = kind -> {
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new CropVerifier.Verdict("stain", 0.9, "fake");
+        };
+        long t = System.nanoTime();
+        InspectResult r = svc.inspect(photo, null, null, true);
+        assertThat((System.nanoTime() - t) / 1_000_000).isLessThan(1500);
+        assertThat(r.pendingHelper().candidates()).hasSize(2);
+        assertThat(r.garments().getFirst().defects()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("학습 후보는 보관 기간(30일)이 지난 날짜 폴더를 지움")
+    void prune() throws Exception {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30);
+        java.nio.file.Files.createDirectories(tmp.resolve("2026-10-01"));
+        java.nio.file.Files.writeString(tmp.resolve("2026-10-01/a.json"), "{}");
+        java.nio.file.Files.createDirectories(tmp.resolve("2026-11-01"));
+        new CandidateStore(gpt).prune(java.time.LocalDate.of(2026, 11, 9));
+        assertThat(tmp.resolve("2026-10-01")).doesNotExist();
+        assertThat(tmp.resolve("2026-11-01")).exists();
     }
 
     @Test

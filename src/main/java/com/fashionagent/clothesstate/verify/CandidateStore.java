@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 /**
  * GPT가 얼룩·찢어짐이라고 한 조각만 다시 학습할 후보로 저장합니다(정지원 2026-11-09 "얼룩 사진만 저장").
  * 폴더/날짜/아이디.jpg 와 같은 이름의 .json(종류, 우리 모델 확신도, GPT 확신도, 모델). 사용자 정보는 넣지 않습니다.
- * 바로 학습하지 않고, 사람이 확인한 뒤 학습에 씁니다(docs/gpt-check.md).
+ * 바로 학습하지 않고, 사람이 확인한 뒤 학습에 씁니다. retentionDays(기본 30일)가 지난 날짜 폴더는 지웁니다(docs/gpt-check.md).
  */
 @Component
 public class CandidateStore {
@@ -40,7 +40,11 @@ public class CandidateStore {
             return null;
         }
         try {
-            Path dir = Path.of(props.candidateDir(), LocalDate.now(KST).toString());
+            LocalDate today = LocalDate.now(KST);
+            Path dir = Path.of(props.candidateDir(), today.toString());
+            if (Files.notExists(dir)) {
+                prune(today); // 하루 한 번(새 날짜 폴더를 만들 때) 보관 기간이 지난 폴더를 지움
+            }
             Files.createDirectories(dir);
             String id = UUID.randomUUID().toString();
             Path jpg = dir.resolve(id + ".jpg");
@@ -53,6 +57,34 @@ public class CandidateStore {
         } catch (IOException | RuntimeException e) {
             log.warn("학습 후보 저장 실패: {}", e.getClass().getSimpleName());
             return null;
+        }
+    }
+
+    /** 날짜 폴더(yyyy-MM-dd) 중 retentionDays보다 오래된 것을 지움. */
+    public void prune(LocalDate today) {
+        Path root = Path.of(props.candidateDir());
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        LocalDate oldest = today.minusDays(props.retentionDays());
+        try (var dirs = Files.list(root)) {
+            for (Path d : dirs.toList()) {
+                LocalDate date;
+                try {
+                    date = LocalDate.parse(d.getFileName().toString());
+                } catch (java.time.format.DateTimeParseException e) {
+                    continue;
+                }
+                if (date.isBefore(oldest)) {
+                    try (var files = Files.walk(d)) {
+                        for (Path f : files.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                            Files.deleteIfExists(f);
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.warn("오래된 학습 후보 지우기 실패: {}", e.getClass().getSimpleName());
         }
     }
 }

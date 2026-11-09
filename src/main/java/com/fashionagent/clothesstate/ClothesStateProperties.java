@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.unit.DataSize;
 
 /**
- * application.yml의 clothes.*. 기준값은 docs/model-comparison.md "최종 결정"(정지원 2026-11-08).
+ * application.yml의 clothes.*. 기준값 0.5 / 0.2는 정지원 2026-11-09(docs/training-log.md "사진 단위 정답률").
  * 옷 종류 기준(garment-threshold)은 아직 첫 값이라 실제 사진으로 조정합니다.
  */
 @ConfigurationProperties("clothes")
@@ -18,8 +18,8 @@ public record ClothesStateProperties(
         @DefaultValue("512") int inputSize,
         /** 이 확신도 이상이면 결함으로 보고 바로 알림. */
         @DefaultValue("0.5") double tellThreshold,
-        /** 이 확신도 이상 tell 미만이면 애매함(지인 확인 후보). 미만은 버림. */
-        @DefaultValue("0.3") double askThreshold,
+        /** 이 확신도 이상 tell 미만이면 애매함(GPT에게 물음, 키가 없으면 지인 확인 후보). 미만은 버림. */
+        @DefaultValue("0.2") double askThreshold,
         /** 같은 종류 박스가 이만큼(IoU) 겹치면 하나로 합침. */
         @DefaultValue("0.5") double nmsIou,
         /** 지인에게 한 번에 물을 후보 최대 개수. */

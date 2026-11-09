@@ -23,7 +23,8 @@ import org.springframework.web.client.RestClient;
 
 /** 실제로 서버를 띄우고 MCP 클라이언트로 /mcp에 붙어 본다(agent가 붙는 방식과 같음). 모델은 FakeDetector로 바꿔 끼움. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"clothes.model=classpath:models/none.onnx", "clothes.garment-model=classpath:models/none.onnx"})
+        properties = {"clothes.model=classpath:models/none.onnx", "clothes.garment-model=classpath:models/none.onnx",
+                "clothes.gpt.api-key=", "clothes.gpt.candidate-dir="})
 class McpServerTest {
 
     @TestConfiguration
@@ -60,7 +61,7 @@ class McpServerTest {
         assertThat(tools).extracting(McpSchema.Tool::name).containsExactly("clothes_inspect");
         var schema = tools.getFirst().inputSchema();
         assertThat((List<String>) schema.get("required")).containsExactly("imageBase64");
-        assertThat(schema.get("properties").toString()).contains("mode", "view");
+        assertThat(schema.get("properties").toString()).contains("mode", "view", "allowGpt");
     }
 
     @Test

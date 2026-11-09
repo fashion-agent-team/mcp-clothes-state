@@ -6,15 +6,23 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.awt.image.DataBufferInt;
 import java.io.IOException;
 import java.util.Base64;
+import java.util.Iterator;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 /** 사진 base64 풀기, 모델 입력 만들기, 밝기 계산. 사진은 메모리에서만 쓰고 저장하지 않습니다. */
 public final class Images {
 
     private Images() {
     }
+
+    /** 풀 때 긴 변을 이 정도까지만 남김(모델 입력은 512라 충분하고, 큰 폰 사진을 빨리 풂). */
+    static final int DECODE_MAX_SIDE = 1600;
 
     public static BufferedImage decode(String imageBase64, long maxBytes) {
         if (imageBase64 == null || imageBase64.isBlank()) {
@@ -35,13 +43,45 @@ public final class Images {
             throw new ClothesStateException("bad_image", "사진을 읽지 못했어요.");
         }
         try {
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            BufferedImage img = read(bytes, DECODE_MAX_SIDE);
             if (img == null || img.getWidth() < 32 || img.getHeight() < 32) {
                 throw new ClothesStateException("bad_image", "사진을 읽지 못했어요.");
             }
             return img;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            if (e instanceof ClothesStateException ce) {
+                throw ce;
+            }
             throw new ClothesStateException("bad_image", "사진을 읽지 못했어요.");
+        }
+    }
+
+    /**
+     * 사진 크기를 먼저 읽고, 긴 변이 maxSide보다 2배 이상 크면 건너뛰며 읽는다(서브샘플링). 4000×3000 폰 사진을
+     * 다 풀지 않아도 돼서 빠르고 메모리도 덜 쓴다.
+     */
+    static BufferedImage read(byte[] bytes, int maxSide) throws IOException {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (in == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                int longSide = Math.max(reader.getWidth(0), reader.getHeight(0));
+                ImageReadParam param = reader.getDefaultReadParam();
+                int step = Math.max(1, longSide / maxSide);
+                if (step > 1) {
+                    param.setSourceSubsampling(step, step, 0, 0);
+                }
+                return reader.read(0, param);
+            } finally {
+                reader.dispose();
+            }
         }
     }
 
@@ -73,14 +113,13 @@ public final class Images {
         g.dispose();
         int plane = outW * outH;
         float[] chw = new float[3 * plane];
-        for (int y = 0; y < outH; y++) {
-            for (int x = 0; x < outW; x++) {
-                int rgb = canvas.getRGB(x, y);
-                int i = y * outW + x;
-                chw[i] = ((rgb >> 16) & 0xFF) / 255f;
-                chw[plane + i] = ((rgb >> 8) & 0xFF) / 255f;
-                chw[2 * plane + i] = (rgb & 0xFF) / 255f;
-            }
+        // 픽셀을 하나씩 getRGB로 읽지 않고 배열을 바로 읽음(512×512 기준 수 ms 절약)
+        int[] px = ((DataBufferInt) canvas.getRaster().getDataBuffer()).getData();
+        for (int i = 0; i < plane; i++) {
+            int rgb = px[i];
+            chw[i] = ((rgb >> 16) & 0xFF) / 255f;
+            chw[plane + i] = ((rgb >> 8) & 0xFF) / 255f;
+            chw[2 * plane + i] = (rgb & 0xFF) / 255f;
         }
         return new Letterbox(chw, outW, outH, scale, padX, padY, img.getWidth(), img.getHeight());
     }

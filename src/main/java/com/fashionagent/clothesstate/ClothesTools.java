@@ -24,7 +24,8 @@ public class ClothesTools {
     }
 
     @Tool(name = "clothes_inspect", description = """
-            옷 사진 한 장에서 얼룩(stain)과 찢어짐·구멍(tear)을 찾습니다(우리가 학습한 모델을 이 서버에서 돌림, 사진은 외부로 \
+            옷 사진 한 장에서 옷 한 벌마다 종류(category: top, bottom, outer, dress, shoes, other)와 색(colorName), \
+            얼룩(stain)과 찢어짐·구멍(tear)을 찾습니다(우리가 학습한 모델을 이 서버에서 돌림, 사진은 외부로 \
             보내지 않고 저장하지 않음). 옷 추천 2단계에서 앱이 보낸 사진마다 부르세요. 확실한 것은 garments[].defects에 있고 \
             바로 알립니다. 애매한 것은 pendingHelper.candidates에 있으니 note를 읽고 "지인에게 물어볼까요?"라고 묻고, \
             사용자가 원할 때만 helper_ask로 넘깁니다. where는 사용자가 "어디야?"라고 물을 때만 말합니다. \

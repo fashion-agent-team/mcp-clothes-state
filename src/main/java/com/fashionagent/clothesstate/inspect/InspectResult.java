@@ -3,8 +3,8 @@ package com.fashionagent.clothesstate.inspect;
 import java.util.List;
 
 /**
- * clothes_inspect 결과 (앱 레포 docs/contracts/mcp-tools.md). 이 서버의 모델은 결함만 찾으므로 옷 종류·색·격식은
- * 아직 채우지 않습니다(category other, colorFamily·formality unknown). 사진 전체를 옷 한 벌(g1)로 봅니다.
+ * clothes_inspect 결과 (앱 레포 docs/contracts/mcp-tools.md). 옷 종류·박스는 옷 종류 모델로, 색은 박스 안 픽셀로
+ * 정합니다. 격식(formality)은 아직 unknown, 무늬·소재는 null입니다.
  */
 public record InspectResult(
         List<Garment> garments,

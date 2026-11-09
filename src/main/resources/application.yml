@@ -13,7 +13,7 @@ spring:
         protocol: streamable
         streamable-http:
           mcp-endpoint: /mcp
-        instructions: 옷 사진에서 얼룩과 찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다.
+        instructions: 옷 사진에서 옷 한 벌마다 종류·색·얼룩·찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다.
 
 # 기준값: docs/model-comparison.md "최종 결정" (정지원 2026-11-08)
 clothes:
@@ -22,6 +22,13 @@ clothes:
   tell-threshold: 0.5
   ask-threshold: 0.3
   max-image-bytes: 8MB
+  # 옷 종류(셔츠·티셔츠·니트·가디건·자켓·코트·조끼·바지·반바지·치마·원피스·신발). Fashionpedia(CC BY 4.0)로 학습. 파일이 없으면 사진 전체를 옷 한 벌로 봄.
+  garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion12.onnx}
+  garment-model-version: yolo26n-fashion12
+  # 학습 클래스 순서. 5종 모델이면 top,bottom,outer,dress,shoes
+  garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
+  garment-threshold: 0.4
+  laid-garment-threshold: 0.25
 
 management:
   endpoints:

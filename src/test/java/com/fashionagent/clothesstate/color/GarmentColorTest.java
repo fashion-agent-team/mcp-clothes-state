@@ -56,4 +56,26 @@ class GarmentColorTest {
         BufferedImage img = laid(new Color(230, 230, 225), new Color(30, 120, 50));
         assertThat(GarmentColor.of(img, "worn").colorFamily()).isEqualTo("green");
     }
+
+    @Test
+    @DisplayName("화면에 띄운 사진을 비춘 것처럼 테두리가 검은 모니터여도 흰 배경을 옷으로 보지 않는다 (2026-11-09 리허설)")
+    void photoOnScreen() {
+        BufferedImage img = new BufferedImage(600, 800, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(new Color(15, 15, 18)); // 모니터 테두리
+        g.fillRect(0, 0, 600, 800);
+        g.setColor(new Color(235, 238, 245)); // 사진 속 흰 배경
+        g.fillRect(60, 60, 480, 680);
+        g.setColor(new Color(70, 52, 40)); // 갈색 자켓
+        g.fillRect(200, 250, 200, 300);
+        g.dispose();
+        assertThat(GarmentColor.of(img, "laid").colorFamily()).isEqualTo("brown");
+    }
+
+    @Test
+    @DisplayName("아주 어두운 청록 코트는 검정, 어두운 갈색은 회색이 아니라 갈색")
+    void darkColors() {
+        assertThat(GarmentColor.name(0x182828).colorFamily()).isEqualTo("black");
+        assertThat(GarmentColor.name(0x3B3029).colorFamily()).isEqualTo("brown");
+    }
 }

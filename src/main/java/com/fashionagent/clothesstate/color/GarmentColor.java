@@ -22,12 +22,148 @@ public final class GarmentColor {
     private GarmentColor() {
     }
 
+    /**
+     * 옷 박스 없이 사진 전체에서 옷 색 하나. 옷 종류 모델이 없거나 옷을 못 찾았을 때 씁니다.
+     *
+     * <p>2026-11-09 리허설: 화면에 띄운 사진을 폰으로 비추면 사진 테두리가 모니터 테두리·책상이라 바닥(배경)을
+     * 잘못 잡았고, 흰 배경까지 옷으로 섞여 색이 틀렸습니다. 그래서 앱이 옷을 화면 가운데로 맞춘다는 점을 써서
+     * 가운데 영역만 보고(테두리 색은 믿지 않음), 색을 몇 무리로 나눠 가장 큰 무리의 색을 씁니다.
+     * 입은 사진은 피부색도 뺍니다. 가운데 영역 안의 흰 배경 같은 큰 무채색 판은 옷보다 밝고 고르면 뺍니다.
+     */
     public static Result of(BufferedImage img, String mode) {
-        int[] rgb = "worn".equals(mode) ? region(img, 0.35, 0.25, 0.65, 0.55) : garmentPixels(img);
-        if (rgb.length == 0) {
+        boolean worn = "worn".equals(mode);
+        int[] center = worn ? region(img, 0.3, 0.22, 0.7, 0.62) : region(img, 0.28, 0.28, 0.72, 0.72);
+        if (center.length == 0) {
             return new Result("unknown", null, null);
         }
-        return name(median(rgb));
+        int[] pixels = center;
+        if (worn) {
+            pixels = keep(pixels, p -> !skin(p), 0.3);
+        }
+        // 가운데 영역을 둘러싼 띠. 여기를 대부분 채운 색은 배경(흰 배경판, 스튜디오 회색 벽 등)으로 봅니다.
+        int[] ring = ring(img, 0.12, 0.88, worn ? 0.3 : 0.28, worn ? 0.7 : 0.72, worn ? 0.22 : 0.28,
+                worn ? 0.62 : 0.72);
+        return name(dominant(pixels, ring));
+    }
+
+    /** 조건에 맞는 픽셀만. 남는 게 [minShare]보다 적으면 그대로 둠(옷이 바닥과 비슷한 색이거나 아주 작을 때). */
+    static int[] keep(int[] rgb, java.util.function.IntPredicate test, double minShare) {
+        int[] kept = Arrays.stream(rgb).filter(test).toArray();
+        return kept.length < rgb.length * minShare ? rgb : kept;
+    }
+
+    /** 피부색 같은 픽셀(주황 쪽 색, 중간 채도, 밝음). */
+    static boolean skin(int rgb) {
+        float[] hsv = java.awt.Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, null);
+        double h = hsv[0] * 360;
+        return h >= 5 && h <= 45 && hsv[1] >= 0.18 && hsv[1] <= 0.6 && hsv[2] >= 0.45;
+    }
+
+    /**
+     * 픽셀을 k-평균으로 세 무리로 나눠 가장 큰 무리의 중간값 색. 가장 큰 무리가 아주 밝은 무채색(흰 배경판)이고
+     * 다른 무리가 충분히 크면 그다음 무리를 씁니다.
+     */
+    static int dominant(int[] rgb) {
+        return dominant(rgb, new int[0]);
+    }
+
+    /** [ring]: 가운데를 둘러싼 띠의 픽셀. 띠의 절반 넘게 비슷한 색인 무리는 배경으로 보고 건너뜁니다. */
+    static int dominant(int[] rgb, int[] ring) {
+        if (rgb.length < 12) {
+            return median(rgb);
+        }
+        int k = 3;
+        double[][] c = new double[k][3];
+        int[] byLight = luminanceOrder(rgb);
+        for (int i = 0; i < k; i++) {
+            int p = byLight[(int) ((i + 0.5) * rgb.length / k)];
+            c[i] = new double[] {(p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF};
+        }
+        int[] label = new int[rgb.length];
+        for (int iter = 0; iter < 10; iter++) {
+            double[][] sum = new double[k][3];
+            int[] count = new int[k];
+            for (int i = 0; i < rgb.length; i++) {
+                int r = (rgb[i] >> 16) & 0xFF;
+                int g = (rgb[i] >> 8) & 0xFF;
+                int b = rgb[i] & 0xFF;
+                int best = 0;
+                double bestD = Double.MAX_VALUE;
+                for (int j = 0; j < k; j++) {
+                    double d = sq(r - c[j][0]) + sq(g - c[j][1]) + sq(b - c[j][2]);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = j;
+                    }
+                }
+                label[i] = best;
+                sum[best][0] += r;
+                sum[best][1] += g;
+                sum[best][2] += b;
+                count[best]++;
+            }
+            for (int j = 0; j < k; j++) {
+                if (count[j] > 0) {
+                    c[j] = new double[] {sum[j][0] / count[j], sum[j][1] / count[j], sum[j][2] / count[j]};
+                }
+            }
+        }
+        List<List<Integer>> groups = new ArrayList<>();
+        for (int j = 0; j < k; j++) {
+            groups.add(new ArrayList<>());
+        }
+        for (int i = 0; i < rgb.length; i++) {
+            groups.get(label[i]).add(rgb[i]);
+        }
+        groups.sort((a, b) -> b.size() - a.size());
+        for (List<Integer> g : groups) {
+            if (g.size() < rgb.length * 0.15) {
+                break;
+            }
+            int color = median(g.stream().mapToInt(Integer::intValue).toArray());
+            if (!backdrop(color, ring)) {
+                return color;
+            }
+        }
+        return median(groups.get(0).stream().mapToInt(Integer::intValue).toArray());
+    }
+
+    /** 배경으로 볼 색: 둘레 띠의 절반 넘게 이 색과 비슷함. */
+    private static boolean backdrop(int color, int[] ring) {
+        if (ring.length == 0) {
+            return false;
+        }
+        long near = Arrays.stream(ring).filter(p -> distance(p, color) < 40).count();
+        return near > ring.length * 0.5;
+    }
+
+    /** (x0,y0)-(x1,y1) 바깥 사각형에서 가운데 사각형(cx0,cy0)-(cx1,cy1)을 뺀 띠의 픽셀. */
+    static int[] ring(BufferedImage img, double o0, double o1, double cx0, double cx1, double cy0, double cy1) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+        int step = Math.max(1, Math.max(w, h) / 100);
+        List<Integer> out = new ArrayList<>();
+        for (int y = (int) (h * o0); y < (int) (h * o1); y += step) {
+            for (int x = (int) (w * o0); x < (int) (w * o1); x += step) {
+                double fx = (double) x / w;
+                double fy = (double) y / h;
+                if (fx >= cx0 && fx < cx1 && fy >= cy0 && fy < cy1) {
+                    continue;
+                }
+                out.add(img.getRGB(x, y) & 0xFFFFFF);
+            }
+        }
+        return out.stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    private static int[] luminanceOrder(int[] rgb) {
+        return Arrays.stream(rgb).boxed()
+                .sorted(java.util.Comparator.comparingInt(p -> ((p >> 16) & 0xFF) * 3 + ((p >> 8) & 0xFF) * 6 + (p & 0xFF)))
+                .mapToInt(Integer::intValue).toArray();
+    }
+
+    private static double sq(double v) {
+        return v * v;
     }
 
     /**
@@ -129,8 +265,12 @@ public final class GarmentColor {
         double v = hsv[2];
         String tone = v < 0.35 ? "dark" : v > 0.75 ? "light" : "mid";
         String family;
-        if (v < 0.16 || (s < 0.25 && v < 0.22)) {
+        // 아주 어두운 색은 화면·조명 탓에 파랗거나 초록빛이 끼어도 검정으로 봅니다(2026-11-09: 검정 코트를 파랑이라 함).
+        if (v < 0.16 || (s < 0.25 && v < 0.22 && !(h >= 10 && h < 45 && s >= 0.15)) || (v < 0.2 && s < 0.6)) {
             family = "black";
+        } else if (h >= 10 && h < 45 && s >= 0.15 && v < 0.45) {
+            // 어두운 갈색은 채도가 낮아 회색으로 잡히기 쉬워서 회색보다 먼저 봅니다.
+            family = "brown";
         } else if (s < 0.12 || (s < 0.2 && v < 0.5)) {
             family = v > 0.88 ? "white" : "gray";
         } else if (h >= 200 && h < 255 && v < 0.45) {

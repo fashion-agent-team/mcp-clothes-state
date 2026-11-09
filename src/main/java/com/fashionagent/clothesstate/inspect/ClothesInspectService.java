@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -31,6 +33,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class ClothesInspectService {
 
+    private static final Logger log = LoggerFactory.getLogger(ClothesInspectService.class);
     private static final Set<String> MODES = Set.of("laid", "worn");
     private static final Set<String> VIEWS = Set.of("front", "side", "back");
     private static final InspectResult.Box WHOLE = new InspectResult.Box(0, 0, 1, 1);
@@ -57,7 +60,9 @@ public class ClothesInspectService {
         if (!detector.ready()) {
             throw new ClothesStateException("not_ready", "옷 상태 확인은 아직 준비 중이에요.");
         }
+        long t0 = System.nanoTime();
         BufferedImage img = Images.decode(imageBase64, props.maxImageBytes().toBytes());
+        long tDecode = System.nanoTime();
         String version = garments.ready()
                 ? props.modelVersion() + "+" + props.garmentModelVersion()
                 : props.modelVersion();
@@ -66,6 +71,7 @@ public class ClothesInspectService {
         }
 
         List<Slot> slots = findGarments(img, m);
+        long tGarments = System.nanoTime();
         Map<Slot, List<InspectResult.Candidate>> candidates = new LinkedHashMap<>();
         Slot topCandidate = null;
         double topConf = -1;
@@ -87,6 +93,7 @@ public class ClothesInspectService {
             }
         }
 
+        long tDefects = System.nanoTime();
         List<InspectResult.Garment> out = new ArrayList<>();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
@@ -97,6 +104,12 @@ public class ClothesInspectService {
                     color.colorFamily(), color.tone(), null, k.material(), null, k.formality(), List.copyOf(s.defects),
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence));
         }
+        long tEnd = System.nanoTime();
+        // 단계별 시간(ms). 사진 내용은 남기지 않고 크기와 개수만.
+        log.info("clothes_inspect {}x{} {} garments={} defects={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, 색·정리 {}ms, 전체 {}ms",
+                img.getWidth(), img.getHeight(), m, out.size(),
+                out.stream().mapToInt(g -> g.defects().size()).sum(), candidateCount,
+                ms(t0, tDecode), ms(tDecode, tGarments), ms(tGarments, tDefects), ms(tDefects, tEnd), ms(t0, tEnd));
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
@@ -175,6 +188,10 @@ public class ClothesInspectService {
 
     private static InspectResult.Box box(Detection d) {
         return new InspectResult.Box(round(d.x()), round(d.y()), round(d.w()), round(d.h()));
+    }
+
+    private static long ms(long from, long to) {
+        return (to - from) / 1_000_000;
     }
 
     private static double round(double v) {

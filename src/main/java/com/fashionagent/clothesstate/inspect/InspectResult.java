@@ -17,7 +17,8 @@ public record InspectResult(
     public record Box(double x, double y, double w, double h) {
     }
 
-    public record Defect(String kind, String where, double confidence) {
+    /** checkedBy: model(우리 모델 확신도 tell 이상) 또는 gpt(애매해서 결함 조각만 GPT에게 물어 확인함). */
+    public record Defect(String kind, String where, double confidence, String checkedBy) {
     }
 
     public record Garment(

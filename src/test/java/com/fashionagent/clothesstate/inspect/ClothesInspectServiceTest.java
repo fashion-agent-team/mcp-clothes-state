@@ -7,6 +7,10 @@ import com.fashionagent.clothesstate.ClothesStateException;
 import com.fashionagent.clothesstate.ClothesStateProperties;
 import com.fashionagent.clothesstate.FakeDetector;
 import com.fashionagent.clothesstate.FakeGarmentDetector;
+import com.fashionagent.clothesstate.FakeVerifier;
+import com.fashionagent.clothesstate.verify.CandidateStore;
+import com.fashionagent.clothesstate.verify.CropVerifier;
+import com.fashionagent.clothesstate.verify.GptCheckProperties;
 import com.fashionagent.clothesstate.detect.Detection;
 import java.util.List;
 import com.fashionagent.clothesstate.Photos;
@@ -22,7 +26,17 @@ class ClothesInspectServiceTest {
             List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
     private final FakeDetector detector = new FakeDetector();
     private final FakeGarmentDetector garments = new FakeGarmentDetector();
-    private final ClothesInspectService service = new ClothesInspectService(props, detector, garments);
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path tmp;
+    private final FakeVerifier verifier = new FakeVerifier();
+    private ClothesInspectService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
+                0.3, 512, 64, 0, 0.25, tmp.toString());
+        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt));
+    }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
 
     @Test
@@ -50,6 +64,66 @@ class ClothesInspectServiceTest {
                         org.assertj.core.groups.Tuple.tuple("tear", "옷 가운데"));
         assertThat(r.pendingHelper().candidates().getFirst().box())
                 .isEqualTo(new InspectResult.Box(0.1, 0.8, 0.05, 0.05));
+    }
+
+    @Test
+    @DisplayName("키가 있으면 애매한 것은 GPT에게 묻고, 결함이라고 한 것만 defects(checkedBy=gpt)와 학습 후보로")
+    void gptCheck() throws Exception {
+        verifier.ready = true;
+        verifier.answer = kind -> "tear".equals(kind) ? new CropVerifier.Verdict("tear", 0.8, "fake")
+                : new CropVerifier.Verdict("none", 0.9, "fake");
+        InspectResult r = service.inspect(photo, null, null, true);
+        var g = r.garments().getFirst();
+        assertThat(g.defects()).extracting(InspectResult.Defect::kind, InspectResult.Defect::checkedBy).containsExactly(
+                org.assertj.core.groups.Tuple.tuple("stain", "model"),
+                org.assertj.core.groups.Tuple.tuple("tear", "gpt"));
+        assertThat(r.pendingHelper()).isNull();
+        assertThat(verifier.sizes).hasSize(2);
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.filter(java.nio.file.Files::isRegularFile).map(p -> p.getFileName().toString()).toList();
+            assertThat(saved).hasSize(2).anyMatch(n -> n.endsWith(".jpg")).anyMatch(n -> n.endsWith(".json"));
+        }
+    }
+
+    @Test
+    @DisplayName("동의 없음(allowGpt null·false)이나 GPT가 답하지 못하면 예전처럼 pendingHelper, 아무것도 저장하지 않음")
+    void gptOff() throws Exception {
+        verifier.ready = true;
+        assertThat(service.inspect(photo, null, null, false).pendingHelper().candidates()).hasSize(2);
+        assertThat(service.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
+        assertThat(verifier.sizes).isEmpty();
+        verifier.answer = kind -> null;
+        assertThat(service.inspect(photo, null, null, true).pendingHelper().candidates()).hasSize(2);
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            assertThat(files.filter(java.nio.file.Files::isRegularFile)).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("입은 사진 위쪽(얼굴이 들어갈 수 있음) 후보는 GPT에게 보내지 않음")
+    void wornTopNotSent() {
+        verifier.ready = true;
+        detector.next = List.of(new Detection("stain", 0.41, 0.4, 0.05, 0.05, 0.05),
+                new Detection("stain", 0.41, 0.4, 0.6, 0.05, 0.05));
+        InspectResult r = service.inspect(photo, "worn", "front", true);
+        assertThat(verifier.sizes).hasSize(1);
+        assertThat(r.pendingHelper().candidates()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("결함 조각: 박스 30% 넓힘, 64px보다 작으면 늘림, 긴 변 512 이하")
+    void defectCrop() {
+        var img = new java.awt.image.BufferedImage(2000, 1000, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var small = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0.5, 0.5, 0.01, 0.02), 0.3, 64,
+                512);
+        assertThat(small.getWidth()).isEqualTo(64);
+        assertThat(small.getHeight()).isEqualTo(64);
+        var mid = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0.1, 0.1, 0.1, 0.1), 0.3, 64, 512);
+        assertThat(mid.getWidth()).isEqualTo(320);
+        assertThat(mid.getHeight()).isEqualTo(160);
+        var big = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0, 0, 1, 1), 0.3, 64, 512);
+        assertThat(big.getWidth()).isEqualTo(512);
+        assertThat(big.getHeight()).isEqualTo(256);
     }
 
     @Test

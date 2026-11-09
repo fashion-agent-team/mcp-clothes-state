@@ -8,3 +8,5 @@ build/
 .DS_Store
 # 학습 결과 .pt는 넣지 않음(서버는 src/main/resources/models의 ONNX만 씀)
 *.pt
+# GPT가 결함이라고 한 조각(학습 후보). 레포에 넣지 않음
+data/

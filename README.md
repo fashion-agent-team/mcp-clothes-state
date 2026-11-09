@@ -7,7 +7,7 @@
 ## 한눈에
 
 - 포트: 8093, 엔드포인트: `http://mcp-clothes-state:8093/mcp` (Streamable HTTP)
-- 기술: Spring Boot, Spring AI MCP Server, YOLO 파인튜닝(얼룩·찢어짐·보풀), 옷 종류 YOLO(Fashionpedia CC BY 4.0로 직접 학습, 5종), ONNX Runtime Java. 외부 AI 폴백 없음(애매하면 지인 확인). 학습은 Python(Ultralytics, Roboflow 라벨링, Colab)
+- 기술: Spring Boot, Spring AI MCP Server, YOLO 파인튜닝(얼룩·찢어짐·보풀), 옷 종류 YOLO(Fashionpedia CC BY 4.0로 직접 학습, 5종), ONNX Runtime Java. 애매한 결함(0.2~0.5)은 동의한 사용자만 그 부분 조각을 GPT(gpt-4.1-mini)로 확인([docs/gpt-check.md](docs/gpt-check.md)). 학습은 Python(Ultralytics, Roboflow 라벨링, Colab)
 - 상태 확인: `GET /actuator/health`
 
 ## MCP 도구
@@ -24,7 +24,7 @@
 - **얼룩을 찾는 것까지가 이 서버 일**이고, 어떻게 말할지(빨기·바꾸기)는 agent의 GPT가 정합니다(사진은 넘기지 않고 결과 글만).
 - 응답 모양은 지금 Workers 서버의 ClothesScan에 `position`, `source`, `modelVersion`을 더한 것. 왼쪽·오른쪽은 펼친 옷(laid)이면 사진 기준(사진 왼쪽 = 사용자 왼쪽), 입은 사진(worn)이면 입은 사람 몸 기준.
 - 결함 확신도: 0.5 이상 바로 알림, 0.3~0.5는 지인(helper)에게 확인, 0.3 미만 버림(2026-11-08 확정). 옷 사진은 GPT·Gemini로 보내지 않음.
-- 사진은 저장하지 않습니다.
+- 옷 전체 사진은 저장하지 않습니다. GPT가 결함이라고 한 조각만 다시 학습할 후보로 저장합니다([docs/gpt-check.md](docs/gpt-check.md)).
 - 공개 원단 결함 데이터(AITEX 등)는 공장 원단 사진이라 우리 옷 사진을 직접 찍어 라벨링합니다(결함 종류마다 수백 장 목표).
 
 ## 할 일
@@ -46,7 +46,7 @@
 
 ## Java MCP 서버 (clothes_inspect)
 
-`src/main/java`. 우리가 학습한 YOLO26n v6(`src/main/resources/models/yolo26n_v6.onnx`)를 ONNX Runtime으로 서버 안에서 돌립니다. 사진은 외부 AI로 보내지 않고 저장하지 않습니다.
+`src/main/java`. 우리가 학습한 YOLO26n v6(`src/main/resources/models/yolo26n_v6.onnx`)를 ONNX Runtime으로 서버 안에서 돌립니다. 옷 전체 사진은 외부로 보내지 않고 저장하지 않습니다. 애매한 결함 조각만 GPT로 확인합니다(동의한 사용자, `OPENAI_API_KEY`).
 
 ```bash
 ./gradlew test       # 테스트(모델 대신 가짜 검출기를 씀)

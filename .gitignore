@@ -10,3 +10,7 @@ build/
 *.pt
 # GPT가 결함이라고 한 조각(학습 후보). 레포에 넣지 않음
 data/
+# 키가 든 환경 파일은 올리지 않음
+.env
+.env.*
+!.env.example

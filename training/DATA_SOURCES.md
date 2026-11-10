@@ -13,6 +13,14 @@
 | CLOTHES | https://universe.roboflow.com/s-workspace-wsqvz/clothes-upt5u-lutml/dataset/1 | 1 | Public Domain | 깨끗한 옷 음성 577장, 오탐 평가 200장(학습 제외), v7 입은 사진 얼룩 합성 바탕 |
 | stain (aleminaitha) | https://universe.roboflow.com/aleminaitha/stain-8kizb/dataset/1 | 1 | CC BY 4.0 | 학습 제외, 실제 옷 전체 사진 32장 평가용 |
 
+## 옷 종류 모델 (`yolo26n_fashion12.onnx`)
+
+| 데이터셋 | 출처 | 라이선스 | 쓰임 |
+|---|---|---|---|
+| Fashionpedia | https://fashionpedia.github.io/home/ | 주석 CC BY 4.0 (사진은 원래 사이트 조건을 따름) | 12종으로 묶어 학습 43,623장·검증 1,158장·시험 2,000장(학습에서 따로 뺌) |
+| Clothing dataset (Alexey Grigorev) | https://github.com/alexeygrigorev/clothing-dataset | CC0 | 내려놓거나 옷걸이에 건 옷. 학습 4,104장, 평가 208장(학습 제외). 박스는 1차 모델로 그림 |
+| More clothes·얼룩 데이터의 옷 전체 사진 | 위 표의 Roboflow 출처 | CC BY 4.0 | 직접 검토한 내려놓은 옷 61장(5배 반복) 학습, 15장 평가 |
+
 사전학습 가중치: Ultralytics `yolo26n.pt`, `yolo11n.pt`, `yolo11s.pt`, `yolo26s.pt`(검출), `yolo11n-pose.pt`(입은 사람 위치 안내). Ultralytics 코드와 가중치는 AGPL-3.0입니다(상용 배포 시 라이선스 확인 필요).
 
 CC BY 4.0 데이터를 쓴 모델·결과를 공개할 때는 위 출처 표기를 함께 남깁니다.

@@ -336,8 +336,6 @@ training/                    학습 스크립트·결과 CSV·데이터 출처(�
 docs/                        학습 기록, 모델 비교, 성능 기준, GPT 확인
 ```
 
-`src/*.ts`, `test/*.ts`, `package.json`, `wrangler.toml`은 예전 임시 서버(Cloudflare Workers + Gemini)입니다. 앱은 이제 이 경로를 쓰지 않고(앱 레포 PR #44) 옷 사진은 Gemini로 보내지 않습니다. 정리할 예정이라 새로 고치지 않습니다.
-
 ## 데이터 출처와 라이선스
 
 이미지는 레포에 올리지 않습니다. 전체 표는 [training/DATA_SOURCES.md](training/DATA_SOURCES.md)에 있고, `training/scripts/`로 데이터를 다시 만들 수 있습니다.
@@ -391,7 +389,6 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 - [ ] 같은 옷에서 "아니야"라고 한 자리 다시 안 묻기(약속 문서에 입력 추가 필요)
 - [ ] 젯슨 TensorRT FP16으로 돌리는 경로
 - [ ] 옆·뒷모습 입은 사진 시험
-- [ ] 예전 Workers + Gemini 코드 정리
 - 다른 레포: agent는 동의한 사용자에게만 `allowGpt=true`를 보내고 `checkedBy: gpt`는 약하게 말하기, 앱은 처음 쓸 때 동의 화면
 
 ## 브랜치와 비밀 값

@@ -1,6 +1,6 @@
 # 학습 기록
 
-모델을 학습하거나 실험할 때마다 여기에 한 줄씩 추가합니다. 모델 고르는 기준과 재는 방법은 [benchmark.md](benchmark.md)에 있습니다. 얼룩·찢어짐 모델(v1~v7)을 고른 과정은 [model-comparison.md](model-comparison.md)에 있습니다.
+모델을 학습하거나 실험할 때마다 여기에 한 줄씩 추가합니다. 모든 실험의 점수만 한 화면에 모은 비교표는 [lab.md](lab.md)에 있습니다. 모델 고르는 기준과 재는 방법은 [benchmark.md](benchmark.md)에 있습니다. 얼룩·찢어짐 모델(v1~v7)을 고른 과정은 [model-comparison.md](model-comparison.md)에 있습니다.
 
 - 시간은 한국 시간(KST)입니다.
 - 학습은 팀 젯슨(Jetson Orin, 메모리 약 7GB)에서 하고, 사진은 외부 AI나 API로 보내지 않습니다.

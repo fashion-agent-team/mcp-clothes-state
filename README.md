@@ -367,6 +367,7 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 
 | 문서 | 내용 |
 | --- | --- |
+| [docs/lab.md](docs/lab.md) | 모든 실험을 같은 시험 기준 점수표로 모은 비교표(채택·비교·탈락과 이유) |
 | [docs/training-log.md](docs/training-log.md) | 학습·실험 기록(옷 종류 모델, 사진 단위 정답률, 젯슨 FP16·INT8 비교) |
 | [docs/model-comparison.md](docs/model-comparison.md) | 얼룩·찢어짐 모델 v1~v7 비교와 v6를 고른 이유 |
 | [docs/benchmark.md](docs/benchmark.md) | 용어 설명, 모델 고르는 기준, 재는 방법 |

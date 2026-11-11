@@ -3,6 +3,8 @@ package com.fashionagent.clothesstate.detect;
 import com.fashionagent.clothesstate.ClothesStateProperties;
 import com.fashionagent.clothesstate.embed.EmbedProperties;
 import com.fashionagent.clothesstate.embed.OnnxGarmentEmbedder;
+import com.fashionagent.clothesstate.pattern.OnnxPatternClassifier;
+import com.fashionagent.clothesstate.pattern.PatternProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ResourceLoader;
@@ -26,5 +28,11 @@ public class DetectorConfig {
     @Bean(destroyMethod = "close")
     OnnxGarmentEmbedder garmentEmbedder(EmbedProperties props) {
         return new OnnxGarmentEmbedder(props);
+    }
+
+    /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. */
+    @Bean(destroyMethod = "close")
+    OnnxPatternClassifier patternClassifier(PatternProperties props, ResourceLoader loader) {
+        return new OnnxPatternClassifier(loader.getResource(props.model()), props);
     }
 }

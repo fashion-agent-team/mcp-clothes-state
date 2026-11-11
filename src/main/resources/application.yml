@@ -29,6 +29,13 @@ clothes:
   garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
   garment-threshold: 0.4
   laid-garment-threshold: 0.25
+  # 무늬 8종(plain·stripe·check·floral·dot·graphic·animal·other). Fashionpedia·Second-Hand Fashion(CC BY 4.0)로 학습.
+  # 1등이 무늬인데 확률이 sure-threshold보다 낮으면 pattern=null(모름). 파일이 없으면 pattern 없이 응답
+  pattern:
+    model: ${CLOTHES_PATTERN_MODEL:classpath:models/yolo26n_pattern8.onnx}
+    version: yolo26n-pattern8
+    classes: animal,check,dot,floral,graphic,other,plain,stripe
+    sure-threshold: 0.7
   # 옷마다 이미지 벡터(옷장에서 같은 옷 판단용, 이슈 #15). Marqo FashionSigLIP vision ONNX(Apache-2.0, 372MB)는 레포에 넣지 않고
   # 경로로 받음. 비어 있거나 파일이 없으면 embedding 없이 응답
   embed:

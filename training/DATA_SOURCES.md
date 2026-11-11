@@ -27,4 +27,13 @@
 
 사전학습 가중치: Ultralytics `yolo26n.pt`, `yolo11n.pt`, `yolo11s.pt`, `yolo26s.pt`(검출), `yolo11n-pose.pt`(입은 사람 위치 안내). Ultralytics 코드와 가중치는 AGPL-3.0입니다(상용 배포 시 라이선스 확인 필요).
 
+## 무늬 모델 (`yolo26n_pattern8.onnx`)
+
+| 데이터셋 | 출처 | 라이선스 | 쓰임 |
+|---|---|---|---|
+| Fashionpedia 무늬 속성(textile pattern, animal) | https://fashionpedia.github.io/home/ | 주석 CC BY 4.0 (사진은 원래 사이트 조건) | 옷(카테고리 0~11)마다 무늬 속성이 정확히 하나인 것만 옷 상자를 8% 넓혀 잘라 씀. 학습 21,085개(무지는 9,000개로 줄임), 검증 1,821개(원래 val), 시험 7,465개(옷 종류 시험 2,000장 + 학습에서 뺀 3,000장의 옷) |
+| Clothing Dataset for Second-Hand Fashion v3 (앞면만) | https://zenodo.org/records/13788681 · https://huggingface.co/datasets/fnauman/fashion-second-hand-front-only-rgb | CC BY 4.0 | `pattern` 칸 사용(빈 값 = 무지). 학습 약 10,600장(무지 5,000장으로 줄임), 검증 5%, 시험은 공식 test 1,959장. Logo print(작은 로고)·Animal print(동물 그림)·Other·Lace·Embroidered·Transparent·Glitter·Metallic은 우리 분류와 뜻이 달라 뺌 |
+
+사전학습 가중치: Ultralytics `yolo26n-cls.pt`(AGPL-3.0). 스크립트는 `training/scripts/pattern/`.
+
 CC BY 4.0 데이터를 쓴 모델·결과를 공개할 때는 위 출처 표기를 함께 남깁니다.

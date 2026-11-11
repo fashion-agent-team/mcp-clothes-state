@@ -30,13 +30,14 @@ class ClothesInspectServiceTest {
     java.nio.file.Path tmp;
     private final FakeVerifier verifier = new FakeVerifier();
     private final com.fashionagent.clothesstate.FakeEmbedder embedder = new com.fashionagent.clothesstate.FakeEmbedder();
+    private final com.fashionagent.clothesstate.FakePattern pattern = new com.fashionagent.clothesstate.FakePattern();
     private ClothesInspectService service;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
         var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
                 0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30);
-        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder);
+        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern);
     }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
 
@@ -135,7 +136,7 @@ class ClothesInspectServiceTest {
                 List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
                 0.3, 0.25, "", 30);
-        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder);
+        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern);
         verifier.ready = true;
         // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
         assertThat(svc.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
@@ -267,6 +268,28 @@ class ClothesInspectServiceTest {
         assertThat(failed.garments().getFirst().defects()).hasSize(1);
         // 사진 전체를 옷 한 벌로 볼 때는 사진 전체 박스
         assertThat(embedder.calls.getFirst()).containsExactly(0.0, 0.0, 1.0, 1.0);
+    }
+
+    @Test
+    @DisplayName("무늬 모델이 있으면 옷마다 pattern, 신발은 null, modelVersion 뒤에 무늬 모델 이름")
+    void patterns() {
+        assertThat(service.inspect(photo, null, null).garments().getFirst().pattern()).isNull();
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60),
+                new Detection("shoes", 0.88, 0.55, 0.70, 0.20, 0.20));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.modelVersion()).endsWith("+fake-pattern");
+        assertThat(r.garments()).extracting(InspectResult.Garment::pattern).containsExactly("stripe", null);
+        assertThat(pattern.calls).isEqualTo(1);
+        // 모르면 null, 실패해도 검사 결과는 그대로
+        pattern.answer = null;
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isNull();
+        pattern.fail = true;
+        InspectResult failed = service.inspect(photo, "laid", null);
+        assertThat(failed.garments().getFirst().pattern()).isNull();
+        assertThat(failed.garments()).hasSize(2);
     }
 
     @Test

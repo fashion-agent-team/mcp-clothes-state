@@ -8,6 +8,7 @@ import com.fashionagent.clothesstate.detect.Detection;
 import com.fashionagent.clothesstate.detect.GarmentDetector;
 import com.fashionagent.clothesstate.embed.GarmentEmbedder;
 import com.fashionagent.clothesstate.image.Images;
+import com.fashionagent.clothesstate.pattern.PatternClassifier;
 import com.fashionagent.clothesstate.verify.CandidateStore;
 import com.fashionagent.clothesstate.verify.CropVerifier;
 import com.fashionagent.clothesstate.verify.GptCheckProperties;
@@ -40,6 +41,8 @@ import org.springframework.stereotype.Service;
  * defects(checkedBy=gpt), 아니라면 버립니다. 그 아래는 버립니다(기준 0.5 / 0.2, 정지원 2026-11-09).</li>
  * <li>키가 없거나 동의하지 않았거나 GPT가 3초 안에 답하지 못한 후보, 입은 사진에서 얼굴이 들어갈 수 있는 위쪽 후보는
  * 예전처럼 0.3 이상만 pendingHelper로 돌려줍니다. 한 벌에 한 번만 묻는 약속이라 가장 확신도 높은 후보가 있는 옷 한 벌의 후보만 담습니다.</li>
+ * <li>무늬 모델이 있으면 옷마다 pattern(plain·stripe·check·floral·dot·graphic·animal·other)을 붙입니다. 무늬라고 봤지만
+ * 확신이 낮으면 null(모름)이고, 신발은 학습하지 않아 null입니다.</li>
  * <li>벡터 모델이 있으면 옷마다 embedding(옷 박스 이미지 벡터, 옷장 같은 옷 판단용, 이슈 #15)을 붙입니다.</li>
  * </ul>
  */
@@ -58,11 +61,13 @@ public class ClothesInspectService {
     private final CropVerifier verifier;
     private final CandidateStore store;
     private final GarmentEmbedder embedder;
+    private final PatternClassifier patterns;
     /** GPT 동시 요청 수(시험과 같게 4). */
     private final Semaphore gptSlots = new Semaphore(4);
 
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
-            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder) {
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
+            PatternClassifier patterns) {
         this.props = props;
         this.detector = detector;
         this.garments = garments;
@@ -70,6 +75,7 @@ public class ClothesInspectService {
         this.verifier = verifier;
         this.store = store;
         this.embedder = embedder;
+        this.patterns = patterns;
     }
 
     public InspectResult inspect(String imageBase64, String mode, String view) {
@@ -98,6 +104,9 @@ public class ClothesInspectService {
         String version = garments.ready()
                 ? props.modelVersion() + "+" + props.garmentModelVersion()
                 : props.modelVersion();
+        if (patterns.ready()) {
+            version += "+" + patterns.version();
+        }
         if (Images.meanLightness(img) < props.darkLightness()) {
             return new InspectResult(List.of(), null, "dark", "model", version, null, null);
         }
@@ -156,13 +165,14 @@ public class ClothesInspectService {
             s.id = "g" + (i + 1);
             GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : GarmentColor.inBox(crop(img, s.box), m);
             GarmentKind k = s.kind;
+            String pattern = "shoes".equals(k.category()) ? null : pattern(img, s.box);
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
-                    color.colorFamily(), color.tone(), null, k.material(), null, k.formality(), List.copyOf(s.defects),
+                    color.colorFamily(), color.tone(), pattern, k.material(), null, k.formality(), List.copyOf(s.defects),
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence, embed ? embed(img, s.box) : null));
         }
         long tEnd = System.nanoTime();
         // 단계별 시간(ms). 사진 내용은 남기지 않고 크기와 개수만.
-        log.info("clothes_inspect {}x{} {} garments={} defects={} gpt={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, GPT {}ms, 색·벡터·정리 {}ms, 전체 {}ms",
+        log.info("clothes_inspect {}x{} {} garments={} defects={} gpt={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, GPT {}ms, 색·무늬·벡터·정리 {}ms, 전체 {}ms",
                 img.getWidth(), img.getHeight(), m, out.size(),
                 out.stream().mapToInt(g -> g.defects().size()).sum(), gptAsked, candidateCount,
                 ms(t0, tDecode), ms(tDecode, tGarments), ms(tGarments, tModel), ms(tModel, tDefects), ms(tDefects, tEnd),
@@ -171,6 +181,19 @@ public class ClothesInspectService {
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
         return new InspectResult(out, null, "ok", "model", version, pending, embed ? embedder.version() : null);
+    }
+
+    /** 옷 무늬. 모델이 없거나 실패하면 null(로그만). */
+    private String pattern(BufferedImage img, InspectResult.Box b) {
+        if (!patterns.ready()) {
+            return null;
+        }
+        try {
+            return patterns.classify(img, b.x(), b.y(), b.w(), b.h()).pattern();
+        } catch (RuntimeException e) {
+            log.warn("무늬 판단 실패: {}", e.toString());
+            return null;
+        }
     }
 
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */

@@ -20,6 +20,10 @@
 | Fashionpedia | https://fashionpedia.github.io/home/ | 주석 CC BY 4.0 (사진은 원래 사이트 조건을 따름) | 12종으로 묶어 학습 43,623장·검증 1,158장·시험 2,000장(학습에서 따로 뺌) |
 | Clothing dataset (Alexey Grigorev) | https://github.com/alexeygrigorev/clothing-dataset | CC0 | 내려놓거나 옷걸이에 건 옷. 학습 4,104장, 평가 208장(학습 제외). 박스는 1차 모델로 그림 |
 | More clothes·얼룩 데이터의 옷 전체 사진 | 위 표의 Roboflow 출처 | CC BY 4.0 | 직접 검토한 내려놓은 옷 61장(5배 반복) 학습, 15장 평가 |
+| Clothing Dataset for Second-Hand Fashion v3 (앞면만, HF `fnauman/fashion-second-hand-front-only-rgb`) | https://zenodo.org/records/13788681 · https://huggingface.co/datasets/fnauman/fashion-second-hand-front-only-rgb | CC BY 4.0 | fashion12c부터. 학습 5,809장(가디건·조끼·니트·재킷·코트 위주. 겉옷 496장과 Vest 396장은 직접 보고 나누거나 뺌), 시험 449장. 상자는 우리 모델로 그림 |
+| Clothing dataset 신발 사진 (Alexey Grigorev) | https://github.com/alexeygrigorev/clothing-dataset | CC0 | fashion12d부터. 신발 431장 중 한 켤레를 정확히 잡은 372장: 학습 332장, 시험 40장. 상자는 OWLv2(Apache 2.0, 맥에서 로컬 실행)로 그림 |
+| object_detection_dom v1 (Roboflow, shoe-detect) | https://universe.roboflow.com/shoe-detect/object_detection_dom/dataset/1 | CC BY 4.0 | fashion12d부터. 원본 158장 중 78장 학습(영수증·주소 보이는 사진, 확대·밑창 사진 뺌). 상자는 한 짝씩 다시 그림 |
+| Fashion-1K (Humanbased-AI, 예전 Codatta) | https://huggingface.co/datasets/Humanbased-AI/Fashion-1K | openrail, 이미지 출처 표기 없음 | **학습에 안 씀.** 내려놓은 신발 확인용으로만 48장 봄(브랜드 상품 사진 콜라주, 워터마크 있음) |
 
 사전학습 가중치: Ultralytics `yolo26n.pt`, `yolo11n.pt`, `yolo11s.pt`, `yolo26s.pt`(검출), `yolo11n-pose.pt`(입은 사람 위치 안내). Ultralytics 코드와 가중치는 AGPL-3.0입니다(상용 배포 시 라이선스 확인 필요).
 

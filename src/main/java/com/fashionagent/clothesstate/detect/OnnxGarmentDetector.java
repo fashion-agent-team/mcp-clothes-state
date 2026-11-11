@@ -21,8 +21,24 @@ public class OnnxGarmentDetector implements GarmentDetector, AutoCloseable {
     private final OnnxYolo yolo;
     private final double sameGarmentIou;
 
+    /** 코트·재킷이 애매할 때 내보내는 종류 이름(GarmentKind에서 "겉옷"). */
+    public static final String OUTER_UNSURE = "outer_unsure";
+
     public OnnxGarmentDetector(Resource model, int size, double nmsIou, double sameGarmentIou, String[] classes) {
-        this.yolo = new OnnxYolo(model, size, nmsIou, classes, "옷 종류");
+        this(model, size, nmsIou, sameGarmentIou, classes, 0);
+    }
+
+    /**
+     * outerUnsureRatio > 0이면 코트·재킷 중 하나를 1등으로 고른 박스에서 다른 쪽 점수가 1등의 이 배수 이상일 때
+     * 종류를 "겉옷"으로 낸다. 0.1이면 내려놓은 옷·중고 의류 652장에서 코트·재킷을 잘못 부른 23장 중 9장이 "겉옷"으로
+     * 바뀌고, 맞게 부른 것 중 3장만 "겉옷"이 된다(2026-11-11, fashion12e).
+     */
+    public OnnxGarmentDetector(Resource model, int size, double nmsIou, double sameGarmentIou, String[] classes,
+            double outerUnsureRatio) {
+        YoloOutput.UnsurePair unsure = outerUnsureRatio > 0
+                ? new YoloOutput.UnsurePair("jacket", "coat", outerUnsureRatio, OUTER_UNSURE)
+                : null;
+        this.yolo = new OnnxYolo(model, size, nmsIou, classes, "옷 종류", unsure);
         this.sameGarmentIou = sameGarmentIou;
     }
 

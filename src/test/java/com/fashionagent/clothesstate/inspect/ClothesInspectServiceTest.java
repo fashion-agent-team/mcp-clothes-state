@@ -23,7 +23,7 @@ class ClothesInspectServiceTest {
 
     private final ClothesStateProperties props = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.3, 0.5,
             5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
-            List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
+            List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
     private final FakeDetector detector = new FakeDetector();
     private final FakeGarmentDetector garments = new FakeGarmentDetector();
     @org.junit.jupiter.api.io.TempDir
@@ -132,7 +132,7 @@ class ClothesInspectServiceTest {
     void fallbackAndTimeout() {
         var p02 = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.2, 0.5, 5, 25, DataSize.ofMegabytes(8),
                 "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
-                List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
+                List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
                 0.3, 0.25, "", 30);
         var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder);
@@ -325,6 +325,7 @@ class ClothesInspectServiceTest {
                         org.assertj.core.groups.Tuple.tuple("top", "니트", "unknown", "니트"),
                         org.assertj.core.groups.Tuple.tuple("bottom", "반바지", "casual", null));
         assertThat(GarmentKind.of("coat")).isEqualTo(new GarmentKind("outer", "코트", "smart", null));
+        assertThat(GarmentKind.of("outer_unsure")).isEqualTo(new GarmentKind("outer", "겉옷", "unknown", null));
         assertThat(GarmentKind.of("모름")).isEqualTo(GarmentKind.OTHER);
     }
 }

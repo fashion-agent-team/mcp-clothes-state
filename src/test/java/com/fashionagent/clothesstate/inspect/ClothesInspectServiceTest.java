@@ -315,6 +315,16 @@ class ClothesInspectServiceTest {
         assertThat(g.patternCheckedBy()).isEqualTo("gpt");
         assertThat(patternGpt.calls).isEqualTo(1);
         assertThat(patternGpt.lastWidth).isEqualTo(128); // 320 × 0.40
+        // 옷 박스 그림과 GPT 답을 무늬 학습 후보로 저장(그림 + json)
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.filter(f -> f.getFileName().toString().startsWith("pattern-")).toList();
+            assertThat(saved).hasSize(2);
+            var json = saved.stream().filter(f -> f.toString().endsWith(".json")).findFirst().orElseThrow();
+            assertThat(java.nio.file.Files.readString(json)).contains("\"task\":\"pattern\"", "\"label\":\"check\"",
+                    "\"modelTop\":\"dot\"", "\"reviewed\":false");
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
         // 모델이 확실하면 묻지 않고 model
         pattern.answer = "stripe";
         var g2 = service.inspect(photo, "laid", null, true).garments().getFirst();

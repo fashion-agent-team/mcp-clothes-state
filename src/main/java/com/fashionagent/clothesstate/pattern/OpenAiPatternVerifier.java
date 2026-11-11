@@ -27,7 +27,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 무늬 모델이 "모름"이라고 한 옷을 OpenAI Chat Completions(그림 입력)로 묻습니다(정지원 2026-11-11). 키·모델·시간은
- * 얼룩 확인과 같은 clothes.gpt.*를 씁니다. 옷 박스만 긴 변 512로 줄여 보내고 저장하지 않습니다.
+ * 얼룩 확인과 같은 clothes.gpt.*를 씁니다. 옷 박스만 긴 변 512로 줄여 보냅니다(줄이기는 부르는 쪽에서).
  */
 @Component
 public class OpenAiPatternVerifier implements PatternVerifier {
@@ -41,7 +41,7 @@ public class OpenAiPatternVerifier implements PatternVerifier {
             + "graphic (letters, numbers, cartoon or picture print), animal (leopard, zebra, snake skin), other (any "
             + "other print: abstract, geometric, paisley, camouflage). Answer only JSON: {\"pattern\": \"<one of the "
             + "words>\", \"confidence\": 0.0-1.0}";
-    static final int MAX_SIDE = 512;
+    public static final int MAX_SIDE = 512;
 
     private final GptCheckProperties props;
     private final HttpClient http;
@@ -58,12 +58,12 @@ public class OpenAiPatternVerifier implements PatternVerifier {
     }
 
     @Override
-    public String ask(BufferedImage garment) {
+    public Answer ask(BufferedImage garment) {
         if (!ready()) {
             return null;
         }
         try {
-            String body = json.writeValueAsString(request(jpegBase64(shrink(garment, MAX_SIDE))));
+            String body = json.writeValueAsString(request(jpegBase64(garment)));
             HttpRequest req = HttpRequest.newBuilder(URI.create(props.baseUrl() + "/chat/completions"))
                     .timeout(props.timeout())
                     .header("Authorization", "Bearer " + props.apiKey())
@@ -71,7 +71,7 @@ public class OpenAiPatternVerifier implements PatternVerifier {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
-            String p = res.statusCode() == 200 ? parse(res.body()) : null;
+            Answer p = res.statusCode() == 200 ? parse(res.body()) : null;
             if (p == null) {
                 log.warn("GPT 무늬 확인 실패: HTTP {}", res.statusCode());
             }
@@ -96,21 +96,24 @@ public class OpenAiPatternVerifier implements PatternVerifier {
                                 Map.of("url", "data:image/jpeg;base64," + jpegBase64, "detail", "low"))))));
     }
 
-    /** 응답 JSON → 무늬 이름. 모양이 다르거나 목록에 없는 이름이면 null. */
-    String parse(String responseBody) {
+    /** 응답 JSON → 답. 모양이 다르거나 목록에 없는 이름이면 null. */
+    Answer parse(String responseBody) {
         JsonNode content = json.readTree(responseBody).path("choices").path(0).path("message").path("content");
         if (!content.isString()) {
             return null;
         }
         try {
-            String p = json.readTree(content.asString()).path("pattern").asString("").strip().toLowerCase();
-            return NAMES.contains(p) ? p : null;
+            JsonNode a = json.readTree(content.asString());
+            String p = a.path("pattern").asString("").strip().toLowerCase();
+            double conf = Math.max(0, Math.min(1, a.path("confidence").asDouble(0)));
+            return NAMES.contains(p) ? new Answer(p, conf, props.model()) : null;
         } catch (RuntimeException e) {
             return null;
         }
     }
 
-    static BufferedImage shrink(BufferedImage img, int maxSide) {
+    /** 보내고 저장하는 그림 크기(긴 변 maxSide). */
+    public static BufferedImage shrink(BufferedImage img, int maxSide) {
         double s = Math.min(1.0, (double) maxSide / Math.max(img.getWidth(), img.getHeight()));
         int w = Math.max(1, (int) Math.round(img.getWidth() * s));
         int h = Math.max(1, (int) Math.round(img.getHeight() * s));

@@ -9,6 +9,7 @@ import com.fashionagent.clothesstate.detect.GarmentDetector;
 import com.fashionagent.clothesstate.embed.GarmentEmbedder;
 import com.fashionagent.clothesstate.image.Images;
 import com.fashionagent.clothesstate.pattern.PatternClassifier;
+import com.fashionagent.clothesstate.pattern.OpenAiPatternVerifier;
 import com.fashionagent.clothesstate.pattern.PatternVerifier;
 import com.fashionagent.clothesstate.verify.CandidateStore;
 import com.fashionagent.clothesstate.verify.CropVerifier;
@@ -44,7 +45,8 @@ import org.springframework.stereotype.Service;
  * 예전처럼 0.3 이상만 pendingHelper로 돌려줍니다. 한 벌에 한 번만 묻는 약속이라 가장 확신도 높은 후보가 있는 옷 한 벌의 후보만 담습니다.</li>
  * <li>무늬 모델이 있으면 옷마다 pattern(plain·stripe·check·floral·dot·graphic·animal·other)을 붙입니다. 무늬라고 봤지만
  * 확신이 낮으면 null(모름)이고, 신발은 학습하지 않아 null입니다. 모름이면 내려놓은 옷 사진이고 GPT를 쓸 수 있을 때만
- * 그 옷 박스를 GPT에게 물어 patternCheckedBy=gpt로 채웁니다(정지원 2026-11-11). 입은 사진은 몸·얼굴이 들어가 보내지 않습니다.</li>
+ * 그 옷 박스를 GPT에게 물어 patternCheckedBy=gpt로 채우고, 그 그림과 GPT 답을 무늬 재학습 후보로 저장합니다(정지원 2026-11-11).
+ * 입은 사진은 몸·얼굴이 들어가 보내지 않습니다.</li>
  * <li>벡터 모델이 있으면 옷마다 embedding(옷 박스 이미지 벡터, 옷장 같은 옷 판단용, 이슈 #15)을 붙입니다.</li>
  * </ul>
  */
@@ -198,17 +200,19 @@ public class ClothesInspectService {
             return out;
         }
         List<Integer> unsure = new ArrayList<>();
+        List<PatternClassifier.Result> unsureResults = new ArrayList<>();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             if ("shoes".equals(s.kind.category())) {
                 continue;
             }
             try {
-                String p = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h()).pattern();
-                if (p != null) {
-                    out[i] = new String[] {p, "model"};
+                PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
+                if (r.pattern() != null) {
+                    out[i] = new String[] {r.pattern(), "model"};
                 } else {
                     unsure.add(i);
+                    unsureResults.add(r);
                 }
             } catch (RuntimeException e) {
                 log.warn("무늬 판단 실패: {}", e.toString());
@@ -218,13 +222,19 @@ public class ClothesInspectService {
             return out;
         }
         try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<Future<String>> futures = new ArrayList<>();
-            for (int i : unsure) {
-                BufferedImage piece = crop(img, slots.get(i).box);
+            List<Future<PatternVerifier.Answer>> futures = new ArrayList<>();
+            for (int j = 0; j < unsure.size(); j++) {
+                BufferedImage piece = OpenAiPatternVerifier.shrink(crop(img, slots.get(unsure.get(j)).box),
+                        OpenAiPatternVerifier.MAX_SIDE);
+                PatternClassifier.Result mine = unsureResults.get(j);
                 futures.add(pool.submit(() -> {
                     gptSlots.acquire();
                     try {
-                        return patternVerifier.ask(piece);
+                        PatternVerifier.Answer a = patternVerifier.ask(piece);
+                        if (a != null) {
+                            store.savePattern(piece, a.pattern(), a.confidence(), a.model(), mine.top(), mine.confidence());
+                        }
+                        return a;
                     } finally {
                         gptSlots.release();
                     }
@@ -233,10 +243,10 @@ public class ClothesInspectService {
             long deadline = System.nanoTime() + gpt.timeout().toNanos() + 500_000_000L;
             for (int j = 0; j < futures.size(); j++) {
                 try {
-                    String p = futures.get(j).get(Math.max(0, deadline - System.nanoTime()),
+                    PatternVerifier.Answer a = futures.get(j).get(Math.max(0, deadline - System.nanoTime()),
                             java.util.concurrent.TimeUnit.NANOSECONDS);
-                    if (p != null) {
-                        out[unsure.get(j)] = new String[] {p, "gpt"};
+                    if (a != null) {
+                        out[unsure.get(j)] = new String[] {a.pattern(), "gpt"};
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

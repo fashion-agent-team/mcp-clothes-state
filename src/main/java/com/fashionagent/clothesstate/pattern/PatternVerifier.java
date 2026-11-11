@@ -9,7 +9,11 @@ public interface PatternVerifier {
 
     /**
      * @param garment 옷 박스만 잘라 낸 그림(내려놓은 옷 사진에서만 씀)
-     * @return plain·stripe·check·floral·dot·graphic·animal·other 중 하나. 실패하거나 시간이 지나면 null
+     * @return 답. 실패하거나 시간이 지나면 null
      */
-    String ask(BufferedImage garment);
+    Answer ask(BufferedImage garment);
+
+    /** pattern은 plain·stripe·check·floral·dot·graphic·animal·other 중 하나. */
+    record Answer(String pattern, double confidence, String model) {
+    }
 }

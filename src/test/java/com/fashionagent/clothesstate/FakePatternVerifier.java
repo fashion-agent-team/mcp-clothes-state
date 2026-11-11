@@ -17,9 +17,9 @@ public class FakePatternVerifier implements PatternVerifier {
     }
 
     @Override
-    public String ask(BufferedImage garment) {
+    public Answer ask(BufferedImage garment) {
         calls++;
         lastWidth = garment.getWidth();
-        return answer;
+        return answer == null ? null : new Answer(answer, 0.9, "fake-gpt");
     }
 }

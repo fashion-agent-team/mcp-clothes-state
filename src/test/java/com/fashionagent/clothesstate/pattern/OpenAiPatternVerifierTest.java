@@ -27,7 +27,8 @@ class OpenAiPatternVerifierTest {
     @DisplayName("응답의 pattern이 8종 중 하나면 그 이름, 아니면 null")
     void parse() throws Exception {
         var v = new OpenAiPatternVerifier(props("k"));
-        assertThat(v.parse(reply("{\"pattern\": \"Check\", \"confidence\": 0.8}"))).isEqualTo("check");
+        assertThat(v.parse(reply("{\"pattern\": \"Check\", \"confidence\": 0.8}")))
+                .isEqualTo(new PatternVerifier.Answer("check", 0.8, "gpt-4.1-mini"));
         assertThat(v.parse(reply("{\"pattern\": \"tartan\"}"))).isNull();
         assertThat(v.parse(reply("not json"))).isNull();
     }

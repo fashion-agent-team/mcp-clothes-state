@@ -249,6 +249,7 @@ herringbone은 멀리서 무지처럼 보여 뺐습니다. 중고 의류의 Othe
 - ONNX 내보내기: opset 17, 입력 `images` [1, 3, 224, 224] RGB 0~1, 출력 `output0` [1, 8] softmax 확률. 클래스 순서는 폴더 이름 알파벳순(animal, check, dot, floral, graphic, other, plain, stripe).
 - 내려놓은 옷 48장(종류마다 8장)에서 ONNX(CPU)와 PyTorch의 1등이 48장 모두 같았고, 확률 차이는 0.0000이었습니다.
 - 서버 입력은 학습 평가와 같게 만듭니다: 옷 박스를 8% 넓혀 자르고 → 짧은 변 224로 BILINEAR 축소 → 가운데 224×224 → /255.
+- 서버(Java) 입력 만들기도 같은 48장에서 PIL 기준과 1등이 48장 모두 같았고, 확률 차이는 최대 0.005였습니다(`OnnxPatternParityTest`, 맥북).
 
 ## 강사님 실험: 원래 있는 모델 + 우리 데이터
 

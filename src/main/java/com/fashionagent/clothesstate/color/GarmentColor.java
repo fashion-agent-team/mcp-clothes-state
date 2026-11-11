@@ -296,7 +296,27 @@ public final class GarmentColor {
         } else {
             family = "pink";
         }
+        // 연한 색(채도 낮고 밝음): 하늘색 셔츠·연분홍처럼 격식 자리에도 무난한 색. tone은 약속 값(light|mid|dark)을 지키려고
+        // light로 두고, 이름으로 구분합니다("연한 ~", 하늘색, 연분홍). 색 조합 규칙(ColorHarmony)이 이 이름을 봅니다.
+        boolean pale = CHROMATIC.contains(family) && s < 0.4 && v > 0.7;
+        if (pale) {
+            return new Result(family, paleName(family), "light");
+        }
         return new Result(family, korean(family, tone), tone);
+    }
+
+    private static final java.util.Set<String> CHROMATIC =
+            java.util.Set.of("red", "pink", "orange", "yellow", "green", "blue", "purple");
+
+    private static String paleName(String family) {
+        return switch (family) {
+            case "blue" -> "하늘색";
+            case "pink", "red" -> "연분홍";
+            case "green" -> "연한 초록";
+            case "yellow" -> "연한 노랑";
+            case "orange" -> "연한 주황";
+            default -> "연한 보라";
+        };
     }
 
     private static String korean(String family, String tone) {

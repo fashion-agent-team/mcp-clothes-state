@@ -1,13 +1,14 @@
 # mcp-clothes-state
 
 옷 사진 한 장을 받아 **옷 한 벌마다 종류·색·얼룩·찢어짐**을 찾아 주는 MCP 서버입니다.
+같이 입을 옷들의 **색 조합과 자리(면접·장례식 등)에 맞는 색**도 봅니다(`outfit_color_check`).
 패션 에이전트(시각장애인용 음성 코디 도우미)의 한 부분이고, 옷 추천 2단계에서 agent가 사진마다 부릅니다.
 
 담당: 정지원
 
 | 항목 | 값 |
 | --- | --- |
-| 도구 | `clothes_inspect` |
+| 도구 | `clothes_inspect`(사진 → 옷·결함), `outfit_color_check`(옷 목록 → 색 조합 판단, [규칙](docs/color-rules.md)) |
 | 포트 · 엔드포인트 | `8093` · `http://mcp-clothes-state:8093/mcp` (Streamable HTTP, sync) |
 | 상태 확인 | `GET /actuator/health` |
 | 기술 | Java 21, Spring Boot 4.0.9, Spring AI MCP Server 2.0.2, ONNX Runtime 1.20.0 (CPU) |
@@ -371,6 +372,7 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 | [docs/training-log.md](docs/training-log.md) | 학습·실험 기록(옷 종류 모델, 사진 단위 정답률, 젯슨 FP16·INT8 비교) |
 | [docs/model-comparison.md](docs/model-comparison.md) | 얼룩·찢어짐 모델 v1~v7 비교와 v6를 고른 이유 |
 | [docs/benchmark.md](docs/benchmark.md) | 용어 설명, 모델 고르는 기준, 재는 방법 |
+| [docs/color-rules.md](docs/color-rules.md) | 색 조합·자리별 색 규칙(`outfit_color_check`), 왜 규칙인지, 예시 출력 |
 | [docs/gpt-check.md](docs/gpt-check.md) | GPT 확인 흐름, 보내는 것·저장하는 것, 동의 문구, 시험 결과 |
 | [training/README.md](training/README.md) | v6 학습 설정, 학습 데이터 구성, 스크립트 돌리는 순서 |
 | [training/DATA_SOURCES.md](training/DATA_SOURCES.md) | 데이터 출처·라이선스 전체 |
@@ -389,7 +391,9 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 - [ ] 입은 사진 위치를 자세 인식(pose)으로 더 정확하게
 - [ ] 같은 옷에서 "아니야"라고 한 자리 다시 안 묻기(약속 문서에 입력 추가 필요)
 - [ ] 젯슨 TensorRT FP16으로 돌리는 경로
+- [ ] 색 조합 규칙을 AI Hub 코디 선호도 데이터로 검증([색 조합 규칙](docs/color-rules.md))
 - [ ] 옆·뒷모습 입은 사진 시험
+- 다른 레포: agent가 확인 단계에서 `outfit_color_check`를 부르기, 약속 문서(mcp-tools.md)에 도구 추가
 - 다른 레포: agent는 동의한 사용자에게만 `allowGpt=true`를 보내고 `checkedBy: gpt`는 약하게 말하기, 앱은 처음 쓸 때 동의 화면
 
 ## 브랜치와 비밀 값

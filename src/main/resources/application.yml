@@ -13,7 +13,7 @@ spring:
         protocol: streamable
         streamable-http:
           mcp-endpoint: /mcp
-        instructions: 옷 사진에서 옷 한 벌마다 종류·색·얼룩·찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다.
+        instructions: 옷 사진에서 옷 한 벌마다 종류·색·얼룩·찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다. 같이 입을 옷들의 색 조합·자리에 맞는 색은 outfit_color_check로 봅니다.
 
 # 기준값: 0.5 바로 알림 / 0.2~0.5 GPT 확인 (정지원 2026-11-09, docs/gpt-check.md)
 clothes:

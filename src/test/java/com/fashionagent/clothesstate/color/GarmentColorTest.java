@@ -78,4 +78,26 @@ class GarmentColorTest {
         assertThat(GarmentColor.name(0x182828).colorFamily()).isEqualTo("black");
         assertThat(GarmentColor.name(0x3B3029).colorFamily()).isEqualTo("brown");
     }
+
+    private static float[] onehot(String label) {
+        float[] p = new float[ColorModel.CLASSES.length];
+        p[java.util.Arrays.asList(ColorModel.CLASSES).indexOf(label)] = 1;
+        return p;
+    }
+
+    @Test
+    @DisplayName("모델 답 → 색 이름: 와인은 어두운 빨강(차분한 색), 라벤더·민트는 연한 색 이름, 회색 밝기는 픽셀로")
+    void fromModel() {
+        int mid = 0x808080;
+        assertThat(GarmentColor.fromModel(onehot("와인"), mid)).isEqualTo(new GarmentColor.Result("red", "와인색", "dark"));
+        assertThat(GarmentColor.fromModel(onehot("라벤더"), mid)).isEqualTo(new GarmentColor.Result("purple", "연보라", "light"));
+        assertThat(GarmentColor.fromModel(onehot("민트"), mid)).isEqualTo(new GarmentColor.Result("green", "민트", "light"));
+        assertThat(GarmentColor.fromModel(onehot("그레이"), 0x303030).colorName()).isEqualTo("차콜 그레이");
+        assertThat(GarmentColor.fromModel(onehot("실버"), mid)).isEqualTo(new GarmentColor.Result("gray", "은색", "light"));
+        // 픽셀이 연한 분홍(채도 낮고 밝음)이면 연분홍, 쨍하면 분홍
+        assertThat(GarmentColor.fromModel(onehot("핑크"), 0xF0C8D2).colorName()).isEqualTo("연분홍");
+        assertThat(GarmentColor.fromModel(onehot("핑크"), 0xE0307A)).isEqualTo(new GarmentColor.Result("pink", "분홍", "mid"));
+        // 픽셀이 없으면(-1) 중간 밝기로
+        assertThat(GarmentColor.fromModel(onehot("블루"), -1)).isEqualTo(new GarmentColor.Result("blue", "파랑", "mid"));
+    }
 }

@@ -54,12 +54,16 @@ class McpServerTest {
     }
 
     @Test
-    @DisplayName("tools list에 clothes_inspect 하나, imageBase64만 필수")
+    @DisplayName("tools list에 clothes_inspect(imageBase64만 필수)와 outfit_color_check(garments만 필수)")
     @SuppressWarnings("unchecked")
     void toolsList() {
         var tools = client.listTools().tools();
-        assertThat(tools).extracting(McpSchema.Tool::name).containsExactly("clothes_inspect");
-        var schema = tools.getFirst().inputSchema();
+        assertThat(tools).extracting(McpSchema.Tool::name)
+                .containsExactlyInAnyOrder("clothes_inspect", "outfit_color_check");
+        var color = tools.stream().filter(t -> t.name().equals("outfit_color_check")).findFirst().orElseThrow();
+        assertThat((List<String>) color.inputSchema().get("required")).containsExactly("garments");
+        var schema = tools.stream().filter(t -> t.name().equals("clothes_inspect")).findFirst().orElseThrow()
+                .inputSchema();
         assertThat((List<String>) schema.get("required")).containsExactly("imageBase64");
         assertThat(schema.get("properties").toString()).contains("mode", "view", "allowGpt");
     }
@@ -81,6 +85,21 @@ class McpServerTest {
                 .contains("\"code\":\"bad_image\"");
         assertThat(text(call(Map.of("imageBase64", Photos.jpeg(Color.WHITE), "mode", "hanging"))))
                 .contains("\"code\":\"bad_request\"");
+    }
+
+    @Test
+    @DisplayName("outfit_color_check: 면접에 빨간 니트 + 검정 바지 → bad, 바꿀 옷은 니트")
+    void colorCheck() {
+        var args = Map.<String, Object>of("occasion", "formal", "garments", List.of(
+                Map.of("id", "g1", "category", "top", "name", "니트", "colorFamily", "red", "colorName", "빨강",
+                        "tone", "mid", "position", "left", "defects", List.of()),
+                Map.of("id", "g2", "category", "bottom", "name", "바지", "colorFamily", "black", "colorName", "검정",
+                        "tone", "dark")));
+        String out = text(client.callTool(new McpSchema.CallToolRequest("outfit_color_check", args)));
+        assertThat(out).contains("\"verdict\":\"bad\"", "\"rule\":\"occasion_formal\"", "\"swapGarmentId\":\"g1\"",
+                "빨강 니트는 격식 있는 자리에 튀어요").doesNotContain("error");
+        assertThat(text(client.callTool(new McpSchema.CallToolRequest("outfit_color_check", Map.of("garments", List.of())))))
+                .contains("\"code\":\"no_garments\"");
     }
 
     @Test

@@ -24,13 +24,18 @@ clothes:
   max-image-bytes: 8MB
   # 옷 종류(셔츠·티셔츠·니트·가디건·자켓·코트·조끼·바지·반바지·치마·원피스·신발). Fashionpedia(CC BY 4.0)로 학습. 파일이 없으면 사진 전체를 옷 한 벌로 봄.
   garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion12.onnx}
-  garment-model-version: yolo26n-fashion12
+  garment-model-version: yolo26n-fashion12e
   # 학습 클래스 순서. 5종 모델이면 top,bottom,outer,dress,shoes
   garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
   # 옷 색 인식(흰색·검정·하늘색 등 K-Fashion 20색). AI Hub K-Fashion 옷 17만 벌로 학습(training/color-model). 파일이 없으면 픽셀 규칙
   color-model: ${CLOTHES_COLOR_MODEL:classpath:models/color20_cnn.onnx}
   garment-threshold: 0.4
   laid-garment-threshold: 0.25
+  # 옷마다 이미지 벡터(옷장에서 같은 옷 판단용, 이슈 #15). Marqo FashionSigLIP vision ONNX(Apache-2.0, 372MB)는 레포에 넣지 않고
+  # 경로로 받음. 비어 있거나 파일이 없으면 embedding 없이 응답
+  embed:
+    model: ${CLOTHES_EMBED_MODEL:}
+    version: marqo-fashionSigLIP
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

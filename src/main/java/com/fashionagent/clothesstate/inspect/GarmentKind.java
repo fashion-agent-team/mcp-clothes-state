@@ -24,6 +24,8 @@ record GarmentKind(String category, String name, String formality, String materi
             Map.entry("skirt", new GarmentKind("bottom", "치마", "unknown", null)),
             Map.entry("dress", new GarmentKind("dress", "원피스", "unknown", null)),
             Map.entry("shoes", new GarmentKind("shoes", "신발", "unknown", null)),
+            // 코트·재킷이 애매할 때(OnnxGarmentDetector.OUTER_UNSURE). 틀린 이름을 확신해서 말하지 않으려고
+            Map.entry("outer_unsure", new GarmentKind("outer", "겉옷", "unknown", null)),
             // 5종 모델
             Map.entry("top", new GarmentKind("top", "상의", "unknown", null)),
             Map.entry("bottom", new GarmentKind("bottom", "하의", "unknown", null)),

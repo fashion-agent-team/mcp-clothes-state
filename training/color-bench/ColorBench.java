@@ -33,9 +33,9 @@ public class ColorBench {
         var props = new ClothesStateProperties("none", "none", 512, 0.5, 0.2, 0.5, 5, 25, DataSize.ofMegabytes(20),
                 args[1], "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
                 List.of("shirt", "tshirt", "sweater", "cardigan", "jacket", "coat", "vest", "pants", "shorts", "skirt",
-                        "dress", "shoes"));
+                        "dress", "shoes"), 0.1);
         var garments = new OnnxGarmentDetector(new FileSystemResource(args[1]), 512, 0.5, 0.7,
-                props.garmentClasses().toArray(String[]::new));
+                props.garmentClasses().toArray(String[]::new), props.outerUnsureRatio());
         DefectDetector none = new DefectDetector() {
             public boolean ready() { return true; }
             public List<com.fashionagent.clothesstate.detect.Detection> detect(java.awt.image.BufferedImage i, double c) { return List.of(); }
@@ -48,7 +48,13 @@ public class ColorBench {
         var colors = new com.fashionagent.clothesstate.color.ColorModel(
                 args.length > 3 && !"none".equals(args[3]) ? new FileSystemResource(args[3]) : null);
         String mode = args.length > 4 ? args[4] : "worn";
-        var service = new ClothesInspectService(props, none, garments, gpt, off, new CandidateStore(gpt), colors);
+        var noEmbed = new com.fashionagent.clothesstate.embed.GarmentEmbedder() {
+            public boolean ready() { return false; }
+            public String version() { return null; }
+            public float[] embed(java.awt.image.BufferedImage i, double x, double y, double w, double h) { return null; }
+        };
+        var service = new ClothesInspectService(props, none, garments, gpt, off, new CandidateStore(gpt), noEmbed,
+                colors);
 
         List<Path> photos;
         try (Stream<Path> s = Files.walk(dir)) {

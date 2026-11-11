@@ -30,7 +30,9 @@ public class ClothesTools {
             부르세요. garments[].defects는 바로 알립니다(checkedBy가 gpt면 "~인 것 같아요"처럼 조금 약하게). \
             pendingHelper가 있으면 확인하지 못한 것이니 "확실하지 않은 부분이 있어요"라고만 말합니다. \
             where는 사용자가 "어디야?"라고 물을 때만 말합니다. \
-            lighting이 dark면 밝은 곳에서 다시 찍어 달라고 안내합니다.""")
+            lighting이 dark면 밝은 곳에서 다시 찍어 달라고 안내합니다. lighting이 warm이면 결과는 그대로 쓰되 \
+            "불빛이 노래서 색이 틀릴 수 있어요. 흰 불 아래에서 다시 찍어 주세요"라고 함께 말합니다. \
+            colorAlternative가 있으면 색을 단정하지 말고 "검정이나 네이비 같아요"처럼 colorName과 함께 말합니다.""")
     public Object clothesInspect(
             @ToolParam(description = "옷 사진 JPEG base64. 입은 사진도 좌우를 뒤집지 않고 원본 그대로. agent가 넣습니다.") String imageBase64,
             @ToolParam(required = false, description = "laid(내려놓은 옷을 위에서 찍음, 기본값) 또는 worn(옷을 입고 폰 앞에 섬)") String mode,

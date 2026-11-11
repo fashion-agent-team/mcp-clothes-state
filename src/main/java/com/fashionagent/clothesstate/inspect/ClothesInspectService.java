@@ -2,6 +2,7 @@ package com.fashionagent.clothesstate.inspect;
 
 import com.fashionagent.clothesstate.ClothesStateException;
 import com.fashionagent.clothesstate.ClothesStateProperties;
+import com.fashionagent.clothesstate.color.ColorDoubt;
 import com.fashionagent.clothesstate.color.GarmentColor;
 import com.fashionagent.clothesstate.detect.DefectDetector;
 import com.fashionagent.clothesstate.detect.Detection;
@@ -97,6 +98,8 @@ public class ClothesInspectService {
         if (Images.meanLightness(img) < props.darkLightness()) {
             return new InspectResult(List.of(), null, "dark", "model", version, null);
         }
+        // 노란 불(전구색)이면 검사는 그대로 하고 lighting=warm으로 알림. 색은 보정하지 않음(2026-11-11 결정).
+        boolean warm = Images.warmCast(img) > props.warmCast();
 
         List<Slot> slots = findGarments(img, m);
         long tGarments = System.nanoTime();
@@ -149,11 +152,13 @@ public class ClothesInspectService {
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             s.id = "g" + (i + 1);
-            GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : GarmentColor.inBox(crop(img, s.box), m);
+            int rgb = s.whole ? GarmentColor.rgbOf(img, m) : GarmentColor.rgbInBox(crop(img, s.box), m);
+            GarmentColor.Result color = rgb < 0 ? new GarmentColor.Result("unknown", null, null) : GarmentColor.name(rgb);
             GarmentKind k = s.kind;
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
                     color.colorFamily(), color.tone(), null, k.material(), null, k.formality(), List.copyOf(s.defects),
-                    s.box, m.equals("laid") ? position(s.box) : null, s.confidence));
+                    s.box, m.equals("laid") ? position(s.box) : null, s.confidence,
+                    ColorDoubt.alternative(rgb, color, warm)));
         }
         long tEnd = System.nanoTime();
         // 단계별 시간(ms). 사진 내용은 남기지 않고 크기와 개수만.
@@ -165,7 +170,7 @@ public class ClothesInspectService {
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
-        return new InspectResult(out, null, "ok", "model", version, pending);
+        return new InspectResult(out, null, warm ? "warm" : "ok", "model", version, pending);
     }
 
     /**

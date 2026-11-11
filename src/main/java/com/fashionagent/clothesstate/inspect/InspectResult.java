@@ -9,6 +9,7 @@ import java.util.List;
 public record InspectResult(
         List<Garment> garments,
         String framing,
+        /** ok | dark(어두워서 검사 안 함) | warm(노란 불빛이라 색이 틀릴 수 있음, 검사는 함). */
         String lighting,
         String source,
         String modelVersion,
@@ -35,7 +36,9 @@ public record InspectResult(
             List<Defect> defects,
             Box box,
             String position,
-            Double confidence) {
+            Double confidence,
+            /** 헷갈리기 쉬운 다른 후보 색 이름(예: colorName 검정 → "네이비"). 확실하면 null. ColorDoubt 참고. */
+            String colorAlternative) {
     }
 
     public record Candidate(String kind, String where, double confidence, Box box) {

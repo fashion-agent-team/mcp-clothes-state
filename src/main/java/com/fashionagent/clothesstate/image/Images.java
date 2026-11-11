@@ -164,6 +164,42 @@ public final class Images {
         return sum / n;
     }
 
+    /**
+     * 사진이 노란 불빛(전구색 등)으로 물들었는지 보는 값. 점마다 CIELAB b*(+면 노랑, -면 파랑)를 구해 아래쪽 10% 값을
+     * 돌려줍니다. 흰 불 아래에서는 사진 안 어딘가(흰 벽, 그림자, 회색·파란 물건)가 b* 0 근처나 그 아래라서 이 값이
+     * 낮고, 노란 불 아래에서는 가장 덜 노란 곳까지 노랗게 떠서 높아집니다. 노란 옷 한 벌이나 나무 바닥처럼 일부만 노란
+     * 사진은 평균과 달리 이 값이 크게 오르지 않습니다. 아주 어두운 점(L* 15 미만)은 잡음이 많아 뺍니다.
+     */
+    public static double warmCast(BufferedImage img) {
+        int stepX = Math.max(1, img.getWidth() / 64);
+        int stepY = Math.max(1, img.getHeight() / 64);
+        java.util.List<Double> bs = new java.util.ArrayList<>();
+        for (int y = 0; y < img.getHeight(); y += stepY) {
+            for (int x = 0; x < img.getWidth(); x += stepX) {
+                int rgb = img.getRGB(x, y);
+                double r = linear(((rgb >> 16) & 0xFF) / 255.0);
+                double g = linear(((rgb >> 8) & 0xFF) / 255.0);
+                double b = linear((rgb & 0xFF) / 255.0);
+                double yy = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
+                double zz = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+                double fy = labF(yy);
+                if (116 * fy - 16 < 15) {
+                    continue;
+                }
+                bs.add(200 * (fy - labF(zz)));
+            }
+        }
+        if (bs.isEmpty()) {
+            return 0;
+        }
+        java.util.Collections.sort(bs);
+        return bs.get((int) (bs.size() * 0.1));
+    }
+
+    private static double labF(double t) {
+        return t > 216.0 / 24389 ? Math.cbrt(t) : (24389.0 / 27 * t + 16) / 116;
+    }
+
     private static double linear(double c) {
         return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
     }

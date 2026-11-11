@@ -31,10 +31,16 @@ public final class GarmentColor {
      * 입은 사진은 피부색도 뺍니다. 가운데 영역 안의 흰 배경 같은 큰 무채색 판은 옷보다 밝고 고르면 뺍니다.
      */
     public static Result of(BufferedImage img, String mode) {
+        int rgb = rgbOf(img, mode);
+        return rgb < 0 ? new Result("unknown", null, null) : name(rgb);
+    }
+
+    /** {@link #of}가 고른 옷 색(RGB). 옷 픽셀이 없으면 -1. 헷갈리는 색 판단({@link ColorDoubt})에 씁니다. */
+    public static int rgbOf(BufferedImage img, String mode) {
         boolean worn = "worn".equals(mode);
         int[] center = worn ? region(img, 0.3, 0.22, 0.7, 0.62) : region(img, 0.28, 0.28, 0.72, 0.72);
         if (center.length == 0) {
-            return new Result("unknown", null, null);
+            return -1;
         }
         int[] pixels = center;
         if (worn) {
@@ -43,7 +49,7 @@ public final class GarmentColor {
         // 가운데 영역을 둘러싼 띠. 여기를 대부분 채운 색은 배경(흰 배경판, 스튜디오 회색 벽 등)으로 봅니다.
         int[] ring = ring(img, 0.12, 0.88, worn ? 0.3 : 0.28, worn ? 0.7 : 0.72, worn ? 0.22 : 0.28,
                 worn ? 0.62 : 0.72);
-        return name(dominant(pixels, ring));
+        return dominant(pixels, ring);
     }
 
     /** 조건에 맞는 픽셀만. 남는 게 [minShare]보다 적으면 그대로 둠(옷이 바닥과 비슷한 색이거나 아주 작을 때). */
@@ -171,11 +177,17 @@ public final class GarmentColor {
      * worn은 박스 가운데(가로 25~75%, 세로 20~70%)만 봐서 팔 옆 배경·피부가 덜 섞이게 합니다.
      */
     public static Result inBox(BufferedImage crop, String mode) {
+        int rgb = rgbInBox(crop, mode);
+        return rgb < 0 ? new Result("unknown", null, null) : name(rgb);
+    }
+
+    /** {@link #inBox}가 고른 옷 색(RGB). 옷 픽셀이 없으면 -1. */
+    public static int rgbInBox(BufferedImage crop, String mode) {
         int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : garmentPixels(crop);
         if (rgb.length == 0) {
-            return new Result("unknown", null, null);
+            return -1;
         }
-        return name(median(rgb));
+        return median(rgb);
     }
 
     /** 바닥과 다른 색 픽셀. 너무 적으면(옷이 바닥과 비슷한 색) 가운데 50%를 그대로 씀. */
@@ -258,7 +270,7 @@ public final class GarmentColor {
     }
 
     /** RGB 하나 → colorFamily(약속 문서 값), 한국어 이름, tone. */
-    static Result name(int rgb) {
+    public static Result name(int rgb) {
         float[] hsv = java.awt.Color.RGBtoHSB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, null);
         double h = hsv[0] * 360;
         double s = hsv[1];

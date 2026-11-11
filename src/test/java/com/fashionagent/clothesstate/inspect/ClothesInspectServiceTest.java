@@ -22,7 +22,7 @@ import org.springframework.util.unit.DataSize;
 class ClothesInspectServiceTest {
 
     private final ClothesStateProperties props = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.3, 0.5,
-            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
+            5, 25, 12, DataSize.ofMegabytes(8), "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
             List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
     private final FakeDetector detector = new FakeDetector();
     private final FakeGarmentDetector garments = new FakeGarmentDetector();
@@ -129,7 +129,7 @@ class ClothesInspectServiceTest {
     @Test
     @DisplayName("기준 0.2: GPT를 쓰면 0.2~0.3도 묻고, 못 쓰면 0.3 미만은 예전처럼 버림. 3초(여기선 0.2초)를 넘기면 확인 못 한 것으로")
     void fallbackAndTimeout() {
-        var p02 = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.2, 0.5, 5, 25, DataSize.ofMegabytes(8),
+        var p02 = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.2, 0.5, 5, 25, 12, DataSize.ofMegabytes(8),
                 "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
                 List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
@@ -191,6 +191,14 @@ class ClothesInspectServiceTest {
         InspectResult r = service.inspect(Photos.jpeg(new Color(10, 10, 12)), null, null);
         assertThat(r.lighting()).isEqualTo("dark");
         assertThat(r.garments()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("노란 불 사진은 검사는 하고 lighting=warm, 흰색에 베이지 후보")
+    void warm() {
+        InspectResult r = service.inspect(Photos.jpeg(new Color(255, 236, 205)), null, null);
+        assertThat(r.lighting()).isEqualTo("warm");
+        assertThat(r.garments()).isNotEmpty();
     }
 
     @Test

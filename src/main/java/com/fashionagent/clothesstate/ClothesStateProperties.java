@@ -26,6 +26,11 @@ public record ClothesStateProperties(
         @DefaultValue("5") int maxCandidates,
         /** 사진 평균 밝기(L*)가 이보다 낮으면 lighting=dark로 보고 판단하지 않음. */
         @DefaultValue("25") double darkLightness,
+        /**
+         * 사진의 노란 기운(Images.warmCast, b* 아래쪽 10%)이 이보다 높으면 lighting=warm. 검사는 그대로 하고, 색이
+         * 틀릴 수 있다고 알리며 헷갈리는 색은 colorAlternative를 채웁니다. 실제 전구색·주광색 사진으로 다시 맞출 값.
+         */
+        @DefaultValue("12") double warmCast,
         /** 사진 base64를 풀었을 때 최대 크기. 앱은 약 6MB까지 보냄. */
         @DefaultValue("8MB") DataSize maxImageBytes,
         /** 옷 종류 모델 위치. 바꾸려면 환경 변수 CLOTHES_GARMENT_MODEL. 없으면 사진 전체를 옷 한 벌(other)로 봄. */

@@ -171,11 +171,14 @@ public final class GarmentColor {
      * worn은 박스 가운데(가로 25~75%, 세로 20~70%)만 봐서 팔 옆 배경·피부가 덜 섞이게 합니다.
      */
     public static Result inBox(BufferedImage crop, String mode) {
+        int rgb = boxRgb(crop, mode);
+        return rgb < 0 ? new Result("unknown", null, null) : name(rgb);
+    }
+
+    /** {@link #inBox}가 보는 옷 픽셀의 중간값 색. 픽셀이 없으면 -1. */
+    public static int boxRgb(BufferedImage crop, String mode) {
         int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : garmentPixels(crop);
-        if (rgb.length == 0) {
-            return new Result("unknown", null, null);
-        }
-        return name(median(rgb));
+        return rgb.length == 0 ? -1 : median(rgb);
     }
 
     /** 바닥과 다른 색 픽셀. 너무 적으면(옷이 바닥과 비슷한 색) 가운데 50%를 그대로 씀. */
@@ -303,6 +306,57 @@ public final class GarmentColor {
             return new Result(family, paleName(family), "light");
         }
         return new Result(family, korean(family, tone), tone);
+    }
+
+    /**
+     * 색 인식 모델({@link ColorModel})의 답으로 색 이름을 정합니다. 밝기(tone)가 정해진 색(흰색·검정·네이비·하늘색·와인 등)은
+     * 그 값을 쓰고, 나머지는 옷 픽셀 중간값 [pixelRgb]({@link #boxRgb})의 밝기·채도로 정합니다.
+     *
+     * <p>2026-11-11 AI Hub K-Fashion 시험 옷 25,626벌: 픽셀 규칙 45% → 모델(docs/color-rules.md "색 인식 모델").
+     */
+    public static Result fromModel(float[] probabilities, int pixelRgb) {
+        int best = 0;
+        for (int i = 1; i < probabilities.length; i++) {
+            if (probabilities[i] > probabilities[best]) {
+                best = i;
+            }
+        }
+        float[] hsv = pixelRgb < 0 ? new float[] {0, 0, 0.5f}
+                : java.awt.Color.RGBtoHSB((pixelRgb >> 16) & 0xFF, (pixelRgb >> 8) & 0xFF, pixelRgb & 0xFF, null);
+        double s = hsv[1];
+        double v = hsv[2];
+        String tone = v < 0.35 ? "dark" : v > 0.75 ? "light" : "mid";
+        // 강한 색은 연한 색(채도 낮고 밝음, 픽셀 규칙의 연한 색 기준과 같음)일 때만 light, 어두우면 dark, 나머지는 mid.
+        // 쨍한 빨강을 "밝은 빨강"이라 하지 않고, 연분홍 블라우스를 강한 분홍으로 보지 않게.
+        String vivid = v < 0.35 ? "dark" : s < 0.4 && v > 0.7 ? "light" : "mid";
+        return switch (ColorModel.CLASSES[best]) {
+            case "화이트" -> new Result("white", "흰색", "light");
+            case "블랙" -> new Result("black", "검정", "dark");
+            case "베이지" -> new Result("beige", "베이지", "light");
+            case "핑크" -> vivid("pink", vivid);
+            case "그레이" -> new Result("gray", korean("gray", tone), tone);
+            case "스카이블루" -> new Result("blue", "하늘색", "light");
+            case "네이비" -> new Result("navy", "네이비", "dark");
+            case "브라운" -> new Result("brown", korean("brown", tone), tone);
+            case "블루" -> vivid("blue", vivid);
+            case "카키" -> new Result("khaki", korean("khaki", tone), tone);
+            case "레드" -> vivid("red", vivid);
+            case "그린" -> vivid("green", vivid);
+            case "라벤더" -> new Result("purple", "연보라", "light");
+            case "실버" -> new Result("gray", "은색", "light");
+            case "옐로우" -> vivid("yellow", vivid);
+            case "와인" -> new Result("red", "와인색", "dark");
+            case "민트" -> new Result("green", "민트", "light");
+            case "퍼플" -> vivid("purple", vivid);
+            case "오렌지" -> vivid("orange", vivid);
+            default -> new Result("yellow", "겨자색", vivid); // 골드(K-Fashion 골드 라벨은 대부분 겨자색 옷)
+        };
+    }
+
+    /** 강한 색 이름. 연한 색(light)이면 픽셀 규칙과 같은 연한 색 이름(하늘색·연분홍·연한 ~)이라 색 조합에서 차분한 색으로 봅니다. */
+    private static Result vivid(String family, String tone) {
+        return "light".equals(tone) ? new Result(family, paleName(family), "light")
+                : new Result(family, korean(family, tone), tone);
     }
 
     private static final java.util.Set<String> CHROMATIC =

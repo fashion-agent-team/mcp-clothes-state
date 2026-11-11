@@ -23,7 +23,9 @@ import org.springframework.util.unit.DataSize;
  * 색 조합 규칙 검증용: 사진 폴더의 입은 사진마다 실제 서버 순서(clothes_inspect worn → outfit_color_check)를 돌려
  * 옷 색과 판정을 TSV로 씁니다. 얼룩 모델·GPT는 쓰지 않습니다. 사진은 저장하지 않습니다.
  *
- * 실행: java -cp "BOOT-INF/classes:BOOT-INF/lib/*:." ColorBench <사진 폴더> <fashion12.onnx> <out.tsv>
+ * 실행: java -cp "BOOT-INF/classes:BOOT-INF/lib/*:." ColorBench <사진 폴더> <fashion12.onnx> <out.tsv> [색 모델.onnx|none] [worn|laid]
+ * 색 모델을 주면 서버처럼 색 인식 모델(ColorModel)로 색을 정하고, none이거나 빼면 픽셀 규칙만 씁니다.
+ * TSV에 옷 박스(box=x,y,w,h, 사진 대비 비율)도 써서 눈으로 확인할 때 씁니다.
  */
 public class ColorBench {
     public static void main(String[] args) throws Exception {
@@ -43,7 +45,10 @@ public class ColorBench {
             public Verdict verify(java.awt.image.BufferedImage c, String k) { return null; }
         };
         var gpt = new GptCheckProperties("", "m", "http://localhost", Duration.ofSeconds(1), 0.3, 512, 64, 0, 0.3, 0.25, "", 30);
-        var service = new ClothesInspectService(props, none, garments, gpt, off, new CandidateStore(gpt));
+        var colors = new com.fashionagent.clothesstate.color.ColorModel(
+                args.length > 3 && !"none".equals(args[3]) ? new FileSystemResource(args[3]) : null);
+        String mode = args.length > 4 ? args[4] : "worn";
+        var service = new ClothesInspectService(props, none, garments, gpt, off, new CandidateStore(gpt), colors);
 
         List<Path> photos;
         try (Stream<Path> s = Files.walk(dir)) {
@@ -56,7 +61,7 @@ public class ColorBench {
             for (Path p : photos) {
                 try {
                     String b64 = Base64.getEncoder().encodeToString(Files.readAllBytes(p));
-                    InspectResult r = service.inspect(b64, "worn", "front");
+                    InspectResult r = service.inspect(b64, mode, "front");
                     List<ColorHarmony.Item> items = new ArrayList<>();
                     StringBuilder g = new StringBuilder();
                     for (InspectResult.Garment x : r.garments()) {
@@ -64,7 +69,9 @@ public class ColorBench {
                                 x.tone(), null));
                         if (g.length() > 0) g.append(';');
                         g.append(x.category()).append(':').append(x.name()).append(':').append(x.colorFamily())
-                                .append(':').append(x.tone()).append(':').append(x.colorName());
+                                .append(':').append(x.tone()).append(':').append(x.colorName()).append(':')
+                                .append(String.format("%.3f,%.3f,%.3f,%.3f", x.box().x(), x.box().y(), x.box().w(),
+                                        x.box().h()));
                     }
                     StringBuilder line = new StringBuilder(p.getFileName() + "\t" + r.lighting() + "\t" + g);
                     for (String occ : List.of("casual", "formal", "business")) {

@@ -2,6 +2,7 @@ package com.fashionagent.clothesstate.inspect;
 
 import com.fashionagent.clothesstate.ClothesStateException;
 import com.fashionagent.clothesstate.ClothesStateProperties;
+import com.fashionagent.clothesstate.color.ColorModel;
 import com.fashionagent.clothesstate.color.GarmentColor;
 import com.fashionagent.clothesstate.detect.DefectDetector;
 import com.fashionagent.clothesstate.detect.Detection;
@@ -25,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,7 +35,7 @@ import org.springframework.stereotype.Service;
  * 조각만 다시 학습할 후보로 저장합니다(정지원 2026-11-09, 지인 확인 대신).
  * <ul>
  * <li>옷 종류 모델이 옷 박스를 찾습니다. 못 찾거나 모델이 없으면 사진 전체를 옷 한 벌(category other)로 봅니다.</li>
- * <li>색은 옷 박스 안 픽셀로 정합니다(GarmentColor).</li>
+ * <li>색은 옷 박스 조각을 색 인식 모델(ColorModel, K-Fashion 20색)로 정합니다. 모델 파일이 없으면 픽셀 규칙(GarmentColor).</li>
  * <li>얼룩·찢어짐은 박스 중심이 들어가는 옷(여럿이면 가장 작은 옷)에 붙이고, where는 그 옷 박스 안 위치로 씁니다.</li>
  * <li>확신도 tell 이상은 defects(바로 알림, checkedBy=model). ask~tell은 결함 조각을 GPT에게 물어 얼룩·찢어짐이면
  * defects(checkedBy=gpt), 아니라면 버립니다. 그 아래는 버립니다(기준 0.5 / 0.2, 정지원 2026-11-09).</li>
@@ -58,14 +60,25 @@ public class ClothesInspectService {
     /** GPT 동시 요청 수(시험과 같게 4). */
     private final Semaphore gptSlots = new Semaphore(4);
 
+    /** 색 인식 모델. 없거나 파일이 없으면 픽셀 규칙(GarmentColor)으로 색을 정합니다. */
+    private final ColorModel colors;
+
+    @Autowired
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
-            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store) {
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, ColorModel colors) {
         this.props = props;
         this.detector = detector;
         this.garments = garments;
         this.gpt = gpt;
         this.verifier = verifier;
         this.store = store;
+        this.colors = colors;
+    }
+
+    /** 색 인식 모델 없이(픽셀 규칙만). 시험용. */
+    public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store) {
+        this(props, detector, garments, gpt, verifier, store, null);
     }
 
     public InspectResult inspect(String imageBase64, String mode, String view) {
@@ -149,7 +162,7 @@ public class ClothesInspectService {
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             s.id = "g" + (i + 1);
-            GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : GarmentColor.inBox(crop(img, s.box), m);
+            GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(crop(img, s.box), m);
             GarmentKind k = s.kind;
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
                     color.colorFamily(), color.tone(), null, k.material(), null, k.formality(), List.copyOf(s.defects),
@@ -166,6 +179,14 @@ public class ClothesInspectService {
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
         return new InspectResult(out, null, "ok", "model", version, pending);
+    }
+
+    /** 옷 박스 조각의 색. 색 인식 모델이 있으면 모델로 색을 정하고 밝기(tone)는 픽셀로 보탭니다. 없으면 픽셀 규칙. */
+    private GarmentColor.Result color(BufferedImage crop, String mode) {
+        if (colors == null || !colors.ready()) {
+            return GarmentColor.inBox(crop, mode);
+        }
+        return GarmentColor.fromModel(colors.probabilities(crop), GarmentColor.boxRgb(crop, mode));
     }
 
     /**

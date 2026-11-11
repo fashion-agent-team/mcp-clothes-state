@@ -356,11 +356,13 @@ public final class ColorHarmony {
         return !("bottom".equals(i.category()) && "blue".equals(i.colorFamily()) && !"light".equals(i.tone()));
     }
 
-    /** 연한 색(하늘색·연분홍·연한 ~). GarmentColor가 채도 낮고 밝은 색에 이 이름을 붙입니다(tone은 light). */
+    /** 연한 색(하늘색·연분홍·연보라·민트·연한 ~). GarmentColor가 채도 낮고 밝은 색에 이 이름을 붙입니다(tone은 light). */
     static boolean pale(Item i) {
         String n = i.colorName();
-        return chromatic(i) && n != null && (n.startsWith("연한 ") || n.equals("하늘색") || n.equals("연분홍"));
+        return chromatic(i) && n != null && (n.startsWith("연한 ") || PALE_NAMES.contains(n));
     }
+
+    private static final Set<String> PALE_NAMES = Set.of("하늘색", "연분홍", "연보라", "민트");
 
     private static boolean light(Item i) {
         return "white".equals(i.colorFamily()) || "light".equals(i.tone());

@@ -27,6 +27,8 @@ clothes:
   garment-model-version: yolo26n-fashion12
   # 학습 클래스 순서. 5종 모델이면 top,bottom,outer,dress,shoes
   garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
+  # 옷 색 인식(흰색·검정·하늘색 등 K-Fashion 20색). AI Hub K-Fashion 옷 17만 벌로 학습(training/color-model). 파일이 없으면 픽셀 규칙
+  color-model: ${CLOTHES_COLOR_MODEL:classpath:models/color20_cnn.onnx}
   garment-threshold: 0.4
   laid-garment-threshold: 0.25
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)

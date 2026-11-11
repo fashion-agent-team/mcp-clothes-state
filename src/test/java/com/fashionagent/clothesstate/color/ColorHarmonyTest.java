@@ -186,6 +186,17 @@ class ColorHarmonyTest {
     }
 
     @Test
+    @DisplayName("색 인식 모델 이름: 연보라·민트 셔츠는 면접에도 괜찮음, 와인색 니트는 note")
+    void modelNames() {
+        assertThat(check("formal", shirt("g1", "purple", "연보라", "light"), pants("g2", "navy", "네이비", "dark")).verdict())
+                .isEqualTo("good");
+        assertThat(check("formal", shirt("g1", "green", "민트", "light"), pants("g2", "black", "검정", "dark")).verdict())
+                .isEqualTo("good");
+        assertThat(check("formal", top("g1", "red", "와인색", "dark"), pants("g2", "black", "검정", "dark")).verdict())
+                .isEqualTo("ok");
+    }
+
+    @Test
     @DisplayName("GarmentColor: 채도 낮고 밝은 파랑은 하늘색, 진한 파랑은 그대로 파랑")
     void paleNames() {
         assertThat(GarmentColor.name(0xB3D4F0).colorName()).isEqualTo("하늘색");

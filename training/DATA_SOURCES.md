@@ -21,6 +21,13 @@
 | Clothing dataset (Alexey Grigorev) | https://github.com/alexeygrigorev/clothing-dataset | CC0 | 내려놓거나 옷걸이에 건 옷. 학습 4,104장, 평가 208장(학습 제외). 박스는 1차 모델로 그림 |
 | More clothes·얼룩 데이터의 옷 전체 사진 | 위 표의 Roboflow 출처 | CC BY 4.0 | 직접 검토한 내려놓은 옷 61장(5배 반복) 학습, 15장 평가 |
 
+## 옷 색 모델 (`color20_cnn.onnx`)
+
+| 데이터셋 | 출처 | 라이선스 | 쓰임 |
+|---|---|---|---|
+| K-Fashion 이미지 (AI Hub, 과학기술정보통신부·한국지능정보사회진흥원) | https://aihub.or.kr | AI Hub 이용 약관(데이터 재배포 금지, 결과물 공개 때 출처 표기) | Validation 사진 119,023장의 정답 상자 옷 171,538벌. 학습 128,142 / 검증 16,880 / 시험 25,626(사진 단위로 나눔). 과정은 [color-model/README.md](color-model/README.md) |
+| Second-Hand Fashion v3 시험 사진 | [training-log.md](../docs/training-log.md) fashion12c 데이터와 같음 | CC BY 4.0 | 학습 제외. 내려놓은 옷 45벌 색 눈 확인 |
+
 사전학습 가중치: Ultralytics `yolo26n.pt`, `yolo11n.pt`, `yolo11s.pt`, `yolo26s.pt`(검출), `yolo11n-pose.pt`(입은 사람 위치 안내). Ultralytics 코드와 가중치는 AGPL-3.0입니다(상용 배포 시 라이선스 확인 필요).
 
 CC BY 4.0 데이터를 쓴 모델·결과를 공개할 때는 위 출처 표기를 함께 남깁니다.

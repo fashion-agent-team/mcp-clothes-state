@@ -23,7 +23,7 @@ public final class ColorHarmony {
     }
 
     /**
-     * level: bad(바꾸는 게 좋음) | check(맞는지 확인 부탁) | note(조금 튀지만 괜찮음).
+     * level: bad(바꾸는 게 좋음) | check(맞는지 확인 부탁) | note(조금 튀지만 괜찮음) | info(말하지 않고 결과에만 남김).
      * swapGarmentId: 바꾸면 좋은 옷. 없으면 null.
      */
     public record Issue(String rule, String level, List<String> garmentIds, String swapGarmentId, String say) {
@@ -72,8 +72,9 @@ public final class ColorHarmony {
         issues.addAll(countRules(body));
 
         issues.sort(Comparator.comparingInt((Issue i) -> rank(i.level())).thenComparingInt(i -> order(i.rule())));
-        String verdict = issues.isEmpty() ? "good" : "bad".equals(issues.get(0).level()) ? "bad" : "ok";
-        return new Result(verdict, List.copyOf(issues), speech(issues, known, items, lighting));
+        List<Issue> spoken = issues.stream().filter(i -> !"info".equals(i.level())).toList();
+        String verdict = spoken.isEmpty() ? "good" : "bad".equals(spoken.get(0).level()) ? "bad" : "ok";
+        return new Result(verdict, List.copyOf(issues), speech(spoken, known, items, lighting));
     }
 
     // ---------------------------------------------------------------- 자리 규칙
@@ -199,7 +200,9 @@ public final class ColorHarmony {
             return null; // 비슷한 계열(빨강+주황, 빨강+분홍)은 괜찮음
         }
         if (!darkLight && confusingDarks(x, y)) {
-            return new Issue("dark_mix", "check", ids, null,
+            // 2026-11-11 AI Hub 2019 사진 검증: 검정·네이비 섞임으로 잡힌 12장 중 실제로 맞은 건 1~3장(청바지→네이비,
+            // 어두운 카키→검정으로 잘못 봄). 색 인식이 나아질 때까지 말하지 않고(info) 결과에만 남깁니다.
+            return new Issue("dark_mix", "info", ids, null,
                     both(x, y, true) + " 같이 입으신 것 같아요. 비슷해 보이지만 다른 색이에요. 일부러 고르셨으면 괜찮아요.");
         }
         return null;
@@ -386,7 +389,8 @@ public final class ColorHarmony {
         return switch (level) {
             case "bad" -> 0;
             case "check" -> 1;
-            default -> 2;
+            case "note" -> 2;
+            default -> 3;
         };
     }
 

@@ -145,12 +145,14 @@ class ColorHarmonyTest {
         }
 
         @Test
-        @DisplayName("검정 자켓 + 네이비 바지는 check(헷갈리는 어두운 색), 어두운 사진이면 건너뜀")
+        @DisplayName("검정 자켓 + 네이비 바지는 info(헷갈리는 어두운 색, 말하지 않음), 어두운 사진이면 건너뜀")
         void darkMix() {
             Result r = check("casual", outer("g1", "black", "검정", "dark"), pants("g2", "navy", "네이비", "dark"));
-            assertThat(r.verdict()).isEqualTo("ok");
-            assertThat(r.issues().get(0).level()).isEqualTo("check");
-            assertThat(r.speech()).startsWith("검정 자켓과 네이비 바지를 같이 입으신 것 같아요.");
+            // 색 인식이 검정·네이비를 자주 헷갈려서(AI Hub 검증) 지금은 말하지 않고 결과에만 남김
+            assertThat(r.verdict()).isEqualTo("good");
+            assertThat(r.issues().get(0).level()).isEqualTo("info");
+            assertThat(r.issues().get(0).say()).startsWith("검정 자켓과 네이비 바지를 같이 입으신 것 같아요.");
+            assertThat(r.speech()).isEqualTo("색 조합이 잘 어울려요.");
 
             Result dark = ColorHarmony.check(List.of(outer("g1", "black", "검정", "dark"), pants("g2", "navy", "네이비", "dark")),
                     "casual", "dark");

@@ -145,14 +145,22 @@ class ColorHarmonyTest {
         }
 
         @Test
-        @DisplayName("검정 자켓 + 네이비 바지는 info(헷갈리는 어두운 색, 말하지 않음), 어두운 사진이면 건너뜀")
+        @DisplayName("네이비 셔츠 + 검정 바지는 good 그대로, 색만 알려 줌(tell). 어두운 사진이면 건너뜀")
         void darkMix() {
-            Result r = check("casual", outer("g1", "black", "검정", "dark"), pants("g2", "navy", "네이비", "dark"));
-            // 색 인식이 검정·네이비를 자주 헷갈려서(AI Hub 검증) 지금은 말하지 않고 결과에만 남김
+            // 2026-11-11 정지원: "네이비에 블랙은 시크해" 코디 사진 → 경고 대신 색만 정확히
+            Result r = check("casual", shirt("g1", "navy", "네이비", "dark"), pants("g2", "black", "검정", "dark"));
             assertThat(r.verdict()).isEqualTo("good");
-            assertThat(r.issues().get(0).level()).isEqualTo("info");
-            assertThat(r.issues().get(0).say()).startsWith("검정 자켓과 네이비 바지를 같이 입으신 것 같아요.");
-            assertThat(r.speech()).isEqualTo("색 조합이 잘 어울려요.");
+            assertThat(r.issues().get(0).level()).isEqualTo("tell");
+            assertThat(r.speech()).isEqualTo("색 조합이 잘 어울려요. 셔츠는 네이비, 바지는 검정이에요. 비슷해 보이지만 다른 색이라 함께 입으면 시크해요.");
+
+            Result jacket = check("casual", outer("g1", "black", "검정", "dark"), pants("g2", "navy", "네이비", "dark"));
+            assertThat(jacket.speech()).endsWith("자켓은 검정, 바지는 네이비예요. 비슷해 보이지만 다른 색이라 함께 입으면 시크해요.");
+
+            // 다른 문제가 있어도 판정은 그 문제로만 정하고, 색 알려 주기는 뒤에 붙음
+            Result formal = check("formal", top("g1", "red", "빨강", "mid"), outer("g3", "navy", "네이비", "dark"),
+                    pants("g2", "black", "검정", "dark"));
+            assertThat(formal.verdict()).isEqualTo("bad");
+            assertThat(formal.speech()).startsWith("빨강 니트는 격식 있는 자리에 튀어요.").endsWith("함께 입으면 시크해요.");
 
             Result dark = ColorHarmony.check(List.of(outer("g1", "black", "검정", "dark"), pants("g2", "navy", "네이비", "dark")),
                     "casual", "dark");

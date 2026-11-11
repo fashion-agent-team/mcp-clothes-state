@@ -23,7 +23,8 @@ public final class ColorHarmony {
     }
 
     /**
-     * level: bad(바꾸는 게 좋음) | check(맞는지 확인 부탁) | note(조금 튀지만 괜찮음) | info(말하지 않고 결과에만 남김).
+     * level: bad(바꾸는 게 좋음) | check(맞는지 확인 부탁) | note(조금 튀지만 괜찮음) | tell(판정에 넣지 않고 색만 알려 줌)
+     * | info(말하지 않고 결과에만 남김).
      * swapGarmentId: 바꾸면 좋은 옷. 없으면 null.
      */
     public record Issue(String rule, String level, List<String> garmentIds, String swapGarmentId, String say) {
@@ -72,9 +73,11 @@ public final class ColorHarmony {
         issues.addAll(countRules(body));
 
         issues.sort(Comparator.comparingInt((Issue i) -> rank(i.level())).thenComparingInt(i -> order(i.rule())));
-        List<Issue> spoken = issues.stream().filter(i -> !"info".equals(i.level())).toList();
-        String verdict = spoken.isEmpty() ? "good" : "bad".equals(spoken.get(0).level()) ? "bad" : "ok";
-        return new Result(verdict, List.copyOf(issues), speech(spoken, known, items, lighting));
+        // info는 말하지 않고, tell은 판정에 넣지 않고 색만 알려 줍니다.
+        List<Issue> judged = issues.stream().filter(i -> !"info".equals(i.level()) && !"tell".equals(i.level())).toList();
+        List<Issue> told = issues.stream().filter(i -> "tell".equals(i.level())).toList();
+        String verdict = judged.isEmpty() ? "good" : "bad".equals(judged.get(0).level()) ? "bad" : "ok";
+        return new Result(verdict, List.copyOf(issues), speech(judged, told, known, items, lighting));
     }
 
     // ---------------------------------------------------------------- 자리 규칙
@@ -200,10 +203,15 @@ public final class ColorHarmony {
             return null; // 비슷한 계열(빨강+주황, 빨강+분홍)은 괜찮음
         }
         if (!darkLight && confusingDarks(x, y)) {
-            // 2026-11-11 AI Hub 2019 사진 검증: 검정·네이비 섞임으로 잡힌 12장 중 실제로 맞은 건 1~3장(청바지→네이비,
-            // 어두운 카키→검정으로 잘못 봄). 색 인식이 나아질 때까지 말하지 않고(info) 결과에만 남깁니다.
-            return new Issue("dark_mix", "info", ids, null,
-                    both(x, y, true) + " 같이 입으신 것 같아요. 비슷해 보이지만 다른 색이에요. 일부러 고르셨으면 괜찮아요.");
+            // 네이비+검정은 일부러 입는 멋진 조합이라(2026-11-11 정지원, "네이비에 블랙은 시크해" 코디 사진) 경고하지 않고
+            // 판정은 그대로 둔 채 색만 정확히 알려 줍니다(tell). 둘 다 검정인 줄 알았던 사람은 여기서 알아챕니다.
+            // 색 인식 모델로 이 조합이 실제로 맞은 비율: 코디 사진 18장 중 13장(픽셀 규칙 때는 12장 중 1~3장).
+            Item first = SWAP_ORDER.indexOf(x.category()) > SWAP_ORDER.indexOf(y.category()) ? x : y;
+            Item second = first == x ? y : x;
+            return new Issue("dark_mix", "tell", ids, null,
+                    Korean.josa(kind(first), "은", "는") + " " + darkName(first) + ", " + Korean.josa(kind(second), "은", "는")
+                            + " " + Korean.josa(darkName(second), "이에요", "예요")
+                            + ". 비슷해 보이지만 다른 색이라 함께 입으면 시크해요.");
         }
         return null;
     }
@@ -218,6 +226,18 @@ public final class ColorHarmony {
         Set<String> pair = Set.of(a, b);
         return pair.equals(Set.of("black", "navy")) || pair.equals(Set.of("navy", "charcoal"))
                 || pair.equals(Set.of("black", "darkbrown"));
+    }
+
+    private static String darkName(Item i) {
+        if (i.colorName() != null && !i.colorName().isBlank()) {
+            return i.colorName();
+        }
+        return switch (darkKey(i)) {
+            case "black" -> "검정";
+            case "navy" -> "네이비";
+            case "charcoal" -> "차콜 그레이";
+            default -> "어두운 갈색";
+        };
     }
 
     private static String darkKey(Item i) {
@@ -272,7 +292,8 @@ public final class ColorHarmony {
 
     // ---------------------------------------------------------------- 말하기
 
-    private static String speech(List<Issue> issues, List<Item> known, List<Item> all, String lighting) {
+    private static String speech(List<Issue> issues, List<Issue> told, List<Item> known, List<Item> all,
+            String lighting) {
         List<String> sentences = new ArrayList<>();
         Set<String> swaps = new java.util.HashSet<>();
         for (Issue i : issues) {
@@ -292,6 +313,9 @@ public final class ColorHarmony {
             if (body >= 2) {
                 sentences.add("색 조합이 잘 어울려요.");
             }
+        }
+        if (!told.isEmpty()) {
+            sentences.add(told.get(0).say()); // 색 알려 주기는 한 번만
         }
         if ("dark".equals(lighting) && known.size() >= 2) {
             sentences.add("어두워서 색이 정확하지 않을 수 있어요.");
@@ -392,7 +416,8 @@ public final class ColorHarmony {
             case "bad" -> 0;
             case "check" -> 1;
             case "note" -> 2;
-            default -> 3;
+            case "tell" -> 3;
+            default -> 4;
         };
     }
 

@@ -75,14 +75,16 @@
       ],
       "box": { "x": 0.10, "y": 0.20, "w": 0.30, "h": 0.40 },  // 사진 크기를 1로 본 비율
       "position": "left",         // laid만: 박스 중심 x 0.4 미만 left, 0.6 초과 right, 그 사이 center. worn은 null
-      "confidence": 0.91          // 옷 종류 모델 확신도. 사진 전체를 한 벌로 본 경우 null
+      "confidence": 0.91,         // 옷 종류 모델 확신도. 사진 전체를 한 벌로 본 경우 null
+      "embedding": [0.01234, -0.0567, …]  // 옷 박스 이미지 벡터 768개(길이 1). 벡터 모델이 없으면 null
     }
   ],
   "framing": null,
   "lighting": "ok",               // ok | dark
   "source": "model",
   "modelVersion": "yolo26n-v6+yolo26n-fashion12",
-  "pendingHelper": null           // 확인하지 못한 후보가 있을 때만(아래)
+  "pendingHelper": null,          // 확인하지 못한 후보가 있을 때만(아래)
+  "embeddingModel": "marqo-fashionSigLIP"  // embedding을 만든 모델. 없으면 null
 }
 ```
 
@@ -107,6 +109,8 @@
   ```
 
   agent는 "확실하지 않은 부분이 있어요"라고만 말합니다.
+- **`embedding`**: 옷장(mcp-closet)이 "같은 옷인지" 판단할 때 쓰는 옷 박스 이미지 벡터입니다(이슈 #15). 사진은 저장하지 않고 숫자만 돌려줍니다. 옷장은 `embeddingModel`이 같은 벡터끼리만 비교합니다. 사람에게 읽어 줄 값이 아니라서 agent는 GPT에게 넘기기 전에 빼는 것이 좋습니다(옷 한 벌에 숫자 768개).
+  - 만드는 법(이슈 #15 측정과 같음): 옷 박스를 사방 3% 넓혀 자름 → 긴 변 기준 정사각형으로 회색(124,116,104) 채움 → 224×224(PIL BICUBIC과 같은 계산) → (x/255 − 0.5)/0.5 → 원본과 좌우 뒤집은 사진 벡터를 각각 길이 1로 맞춰 평균 → 다시 길이 1, 소수점 5자리.
 - **`lighting: "dark"`**: 사진 평균 밝기(L\*)가 25보다 낮으면 검사하지 않고 `garments: []`로 돌려줍니다. agent는 밝은 곳에서 다시 찍어 달라고 안내합니다.
 
 ### 오류
@@ -277,6 +281,15 @@ set -a; source .env; set +a
 
 키를 넣어도 agent가 `allowGpt=true`를 보낸 요청에서만 GPT에게 묻습니다.
 
+### 옷 벡터를 켜려면 (`CLOTHES_EMBED_MODEL`)
+
+Marqo FashionSigLIP vision ONNX(Apache-2.0, 약 372MB)는 GitHub 파일 크기 제한 때문에 레포에 넣지 않습니다. 파일을 받아 경로를 알려 주면 켜지고, 없으면 `embedding` 없이 지금처럼 응답합니다. 입력은 `[batch, 3, 224, 224]`, 출력은 `[batch, 768]`이어야 합니다(batch가 정해져 있지 않으면 원본·뒤집기를 한 번에 넣음). CPU로 옷 한 벌에 약 0.1~0.2초입니다.
+
+```bash
+# .env
+CLOTHES_EMBED_MODEL=/path/to/marqo-fashionSigLIP-vision.onnx
+```
+
 ### Docker
 
 ```bash
@@ -300,6 +313,8 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 | `clothes.garment-classes` | | `shirt,tshirt,…,shoes` (12종) | 학습 클래스 순서. 5종 모델이면 `top,bottom,outer,dress,shoes` |
 | `clothes.garment-threshold` | | `0.4` | 입은 사진에서 옷으로 볼 최소 확신도 |
 | `clothes.laid-garment-threshold` | | `0.25` | 내려놓은 옷 사진의 최소 확신도 |
+| `clothes.embed.model` | `CLOTHES_EMBED_MODEL` | (없음) | 옷 벡터 모델(FashionSigLIP vision ONNX) 경로. 비면 `embedding` 없음 |
+| `clothes.embed.version` | | `marqo-fashionSigLIP` | 응답의 `embeddingModel` |
 | `clothes.gpt.api-key` | `OPENAI_API_KEY` | (없음) | 비면 GPT를 쓰지 않음 |
 | `clothes.gpt.model` | `CLOTHES_GPT_MODEL` | `gpt-4.1-mini` | GPT 모델 |
 | `clothes.gpt.candidate-dir` | `CLOTHES_CANDIDATE_DIR` | `data/train-candidates` | 학습 후보 폴더. 비우면 저장 안 함 |
@@ -314,8 +329,8 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 ./gradlew test
 ```
 
-- 모델 대신 가짜 검출기(`FakeDetector`, `FakeGarmentDetector`)와 가짜 GPT(`FakeVerifier`)를 써서 키·네트워크 없이 돕니다.
-- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`).
+- 모델 대신 가짜 검출기(`FakeDetector`, `FakeGarmentDetector`), 가짜 벡터 모델(`FakeEmbedder`, 입출력 모양만 같은 작은 ONNX `test/resources/models/tiny-embed.onnx`)과 가짜 GPT(`FakeVerifier`)를 써서 키·네트워크 없이 돕니다.
+- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`).
 - PR과 `develop`·`main` 푸시 때 GitHub Actions(`.github/workflows/ci.yml`)가 Java 21로 같은 테스트를 돌립니다.
 
 ## 폴더 구성
@@ -359,6 +374,8 @@ docs/                        학습 기록, 모델 비교, 성능 기준, GPT �
 | [Clothing dataset](https://github.com/alexeygrigorev/clothing-dataset) (Alexey Grigorev) | CC0 | 내려놓거나 옷걸이에 건 옷. 학습 4,104장, 평가 208장 |
 | More clothes·얼룩 데이터의 옷 전체 사진 | CC BY 4.0 | 직접 검토한 내려놓은 옷 61장 학습, 15장 평가 |
 
+**옷 벡터**: [Marqo FashionSigLIP](https://huggingface.co/Marqo/marqo-fashionSigLIP)(Apache-2.0)을 그대로 씁니다(학습하지 않음). 옷장 쪽 보정 행렬(WCCN)은 비상업 데이터(DeepFashion)로 만들어 이 레포에 넣지 않습니다.
+
 **사전학습 가중치**: Ultralytics `yolo26n.pt` 등. Ultralytics 코드와 가중치는 **AGPL-3.0**입니다(상용 배포 시 라이선스 확인 필요).
 
 CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출처 표기를 함께 남깁니다.
@@ -390,6 +407,8 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 - [ ] 같은 옷에서 "아니야"라고 한 자리 다시 안 묻기(약속 문서에 입력 추가 필요)
 - [ ] 젯슨 TensorRT FP16으로 돌리는 경로
 - [ ] 옆·뒷모습 입은 사진 시험
+- [ ] 실제 FashionSigLIP 모델로 이슈 #15 측정 스크립트와 벡터가 같은지 확인
+- 다른 레포: 옷장은 `embedding`을 pgvector에 저장(박창근 님, 이슈 #15). 약속 문서(mcp-tools.md)에 `embedding`·`embeddingModel` 추가 필요
 - 다른 레포: agent는 동의한 사용자에게만 `allowGpt=true`를 보내고 `checkedBy: gpt`는 약하게 말하기, 앱은 처음 쓸 때 동의 화면
 
 ## 브랜치와 비밀 값

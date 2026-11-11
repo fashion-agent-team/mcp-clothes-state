@@ -29,6 +29,11 @@ clothes:
   garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
   garment-threshold: 0.4
   laid-garment-threshold: 0.25
+  # 옷마다 이미지 벡터(옷장에서 같은 옷 판단용, 이슈 #15). Marqo FashionSigLIP vision ONNX(Apache-2.0, 372MB)는 레포에 넣지 않고
+  # 경로로 받음. 비어 있거나 파일이 없으면 embedding 없이 응답
+  embed:
+    model: ${CLOTHES_EMBED_MODEL:}
+    version: marqo-fashionSigLIP
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

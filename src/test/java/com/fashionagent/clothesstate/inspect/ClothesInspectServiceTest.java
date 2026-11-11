@@ -29,13 +29,14 @@ class ClothesInspectServiceTest {
     @org.junit.jupiter.api.io.TempDir
     java.nio.file.Path tmp;
     private final FakeVerifier verifier = new FakeVerifier();
+    private final com.fashionagent.clothesstate.FakeEmbedder embedder = new com.fashionagent.clothesstate.FakeEmbedder();
     private ClothesInspectService service;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
         var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
                 0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30);
-        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt));
+        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder);
     }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
 
@@ -134,7 +135,7 @@ class ClothesInspectServiceTest {
                 List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12));
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
                 0.3, 0.25, "", 30);
-        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt));
+        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder);
         verifier.ready = true;
         // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
         assertThat(svc.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
@@ -234,6 +235,38 @@ class ClothesInspectServiceTest {
         assertThat(r.pendingHelper().garmentId()).isEqualTo("g2");
         assertThat(r.pendingHelper().candidates()).singleElement()
                 .satisfies(c -> assertThat(c.where()).isEqualTo("옷 오른쪽 아래쪽"));
+    }
+
+    @Test
+    @DisplayName("벡터 모델이 있으면 옷마다 그 옷 박스로 embedding, embeddingModel도 같이")
+    void embeddings() {
+        embedder.ready = true;
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("bottom", 0.88, 0.55, 0.10, 0.40, 0.80),
+                new Detection("top", 0.91, 0.05, 0.10, 0.40, 0.60));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.embeddingModel()).isEqualTo("fake-embed");
+        assertThat(r.garments()).extracting(InspectResult.Garment::embedding)
+                .containsExactly(new float[] {0.05f, 0.1f, 1f}, new float[] {0.55f, 0.1f, 1f});
+        assertThat(embedder.calls).hasSize(2);
+        assertThat(embedder.calls.getFirst()).containsExactly(0.05, 0.1, 0.4, 0.6);
+    }
+
+    @Test
+    @DisplayName("벡터 모델이 없으면 embedding·embeddingModel은 null, 실패하면 그 옷만 null이고 검사 결과는 그대로")
+    void embeddingsOffOrFailing() {
+        InspectResult off = service.inspect(photo, null, null);
+        assertThat(off.embeddingModel()).isNull();
+        assertThat(off.garments().getFirst().embedding()).isNull();
+        assertThat(embedder.calls).isEmpty();
+        embedder.ready = true;
+        embedder.fail = true;
+        InspectResult failed = service.inspect(photo, null, null);
+        assertThat(failed.garments().getFirst().embedding()).isNull();
+        assertThat(failed.garments().getFirst().defects()).hasSize(1);
+        // 사진 전체를 옷 한 벌로 볼 때는 사진 전체 박스
+        assertThat(embedder.calls.getFirst()).containsExactly(0.0, 0.0, 1.0, 1.0);
     }
 
     @Test

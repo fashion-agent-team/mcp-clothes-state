@@ -35,7 +35,14 @@ public class OnnxYolo implements AutoCloseable {
     /** 모델 입력 높이·너비가 정해져 있지 않으면(dynamic) 학습 때처럼 직사각형으로 넣는다. */
     private final boolean rect;
 
+    private final YoloOutput.UnsurePair unsure;
+
     public OnnxYolo(Resource model, int size, double nmsIou, String[] kinds, String label) {
+        this(model, size, nmsIou, kinds, label, null);
+    }
+
+    public OnnxYolo(Resource model, int size, double nmsIou, String[] kinds, String label, YoloOutput.UnsurePair unsure) {
+        this.unsure = unsure;
         this.label = label;
         this.kinds = kinds;
         this.size = size;
@@ -80,7 +87,7 @@ public class OnnxYolo implements AutoCloseable {
                 new long[] {1, 3, lb.inputH(), lb.inputW()});
                 OrtSession.Result r = session.run(Map.of(inputName, t))) {
             float[][][] out = (float[][][]) r.get(0).getValue();
-            return YoloOutput.parse(out[0], lb, minConfidence, nmsIou, kinds);
+            return YoloOutput.parse(out[0], lb, minConfidence, nmsIou, kinds, unsure);
         } catch (OrtException e) {
             throw new IllegalStateException("model run failed: " + e.getMessage(), e);
         }

@@ -24,6 +24,20 @@ public final class YoloOutput {
 
     public static List<Detection> parse(float[][] out, Letterbox lb, double minConfidence, double nmsIou,
             String[] kinds) {
+        return parse(out, lb, minConfidence, nmsIou, kinds, null);
+    }
+
+    /**
+     * 비슷한 두 종류를 1등으로 고른 박스에서 다른 쪽 점수가 1등의 ratio배 이상이면 merged 종류로 내보낸다.
+     * 옷 종류 모델의 코트·재킷이 이런 경우다(기장이 안 보이면 둘을 자주 바꿔 말함).
+     */
+    public record UnsurePair(String a, String b, double ratio, String merged) {
+    }
+
+    public static List<Detection> parse(float[][] out, Letterbox lb, double minConfidence, double nmsIou,
+            String[] kinds, UnsurePair unsure) {
+        int ua = unsure == null ? -1 : java.util.Arrays.asList(kinds).indexOf(unsure.a());
+        int ub = unsure == null ? -1 : java.util.Arrays.asList(kinds).indexOf(unsure.b());
         boolean channelsFirst = out.length == 4 + kinds.length && out[0].length != 4 + kinds.length;
         int n = channelsFirst ? out[0].length : out.length;
         List<Detection> found = new ArrayList<>();
@@ -51,7 +65,15 @@ public final class YoloOutput {
             if (x2 <= x1 || y2 <= y1) {
                 continue;
             }
-            found.add(new Detection(kinds[best], score, x1, y1, x2 - x1, y2 - y1));
+            String kind = kinds[best];
+            if (ua >= 0 && ub >= 0 && (best == ua || best == ub)) {
+                int other = best == ua ? ub : ua;
+                double so = channelsFirst ? out[4 + other][i] : out[i][4 + other];
+                if (so >= unsure.ratio() * score) {
+                    kind = unsure.merged();
+                }
+            }
+            found.add(new Detection(kind, score, x1, y1, x2 - x1, y2 - y1));
         }
         return nms(found, nmsIou);
     }

@@ -74,6 +74,32 @@ class YoloOutputTest {
                         org.assertj.core.groups.Tuple.tuple("tear", (double) 0.7f));
     }
 
+    @Test
+    @DisplayName("코트·재킷: 다른 쪽 점수가 1등의 0.1배 이상이면 겉옷(outer_unsure), 아니면 그대로")
+    void outerUnsure() {
+        String[] kinds = OnnxGarmentDetector.KINDS12;
+        float[][] out = new float[16][3];
+        int jacket = 4 + 4, coat = 4 + 5;
+        for (int i = 0; i < 3; i++) {
+            out[0][i] = 100 + 150 * i;
+            out[1][i] = 256;
+            out[2][i] = 60;
+            out[3][i] = 60;
+        }
+        out[jacket][0] = 0.8f;
+        out[coat][0] = 0.12f;  // 0.12 >= 0.08 → 겉옷
+        out[jacket][1] = 0.8f;
+        out[coat][1] = 0.05f;  // 0.05 < 0.08 → 재킷
+        out[4 + 0][2] = 0.7f;  // 셔츠는 상관없음
+        out[coat][2] = 0.6f;
+        var rule = new YoloOutput.UnsurePair("jacket", "coat", 0.1, OnnxGarmentDetector.OUTER_UNSURE);
+        var found = YoloOutput.parse(out, lb, 0.3, 0.5, kinds, rule);
+        assertThat(found).extracting(Detection::kind)
+                .containsExactlyInAnyOrder("outer_unsure", "jacket", "shirt");
+        assertThat(YoloOutput.parse(out, lb, 0.3, 0.5, kinds)).extracting(Detection::kind)
+                .containsExactlyInAnyOrder("jacket", "jacket", "shirt");
+    }
+
     private static void set(float[][] out, int i, float cx, float cy, float w, float h, float stain, float torn) {
         out[0][i] = cx;
         out[1][i] = cy;

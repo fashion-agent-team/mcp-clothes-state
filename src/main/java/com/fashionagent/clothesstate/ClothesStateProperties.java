@@ -31,7 +31,7 @@ public record ClothesStateProperties(
         /** 옷 종류 모델 위치. 바꾸려면 환경 변수 CLOTHES_GARMENT_MODEL. 없으면 사진 전체를 옷 한 벌(other)로 봄. */
         @DefaultValue("classpath:models/yolo26n_fashion12.onnx") String garmentModel,
         /** 옷 종류 모델 이름(modelVersion 뒤에 붙음). */
-        @DefaultValue("yolo26n-fashion12") String garmentModelVersion,
+        @DefaultValue("yolo26n-fashion12e") String garmentModelVersion,
         /** 입은 사진에서 옷으로 볼 최소 확신도. */
         @DefaultValue("0.4") double garmentThreshold,
         /**
@@ -45,5 +45,7 @@ public record ClothesStateProperties(
         @DefaultValue("6") int maxGarments,
         /** 옷 종류 모델의 클래스 순서(학습 순서). 5종 모델을 쓰면 top,bottom,outer,dress,shoes. */
         @DefaultValue({"shirt", "tshirt", "sweater", "cardigan", "jacket", "coat", "vest", "pants", "shorts", "skirt",
-                "dress", "shoes"}) java.util.List<String> garmentClasses) {
+                "dress", "shoes"}) java.util.List<String> garmentClasses,
+        /** 코트·재킷이 애매하면 "겉옷"으로 말하는 기준(다른 쪽 점수 ≥ 1등 × 이 값). 0이면 끔. */
+        @DefaultValue("0.1") double outerUnsureRatio) {
 }

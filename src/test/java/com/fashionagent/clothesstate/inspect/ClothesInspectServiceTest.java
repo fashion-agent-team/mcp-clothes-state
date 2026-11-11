@@ -31,13 +31,14 @@ class ClothesInspectServiceTest {
     private final FakeVerifier verifier = new FakeVerifier();
     private final com.fashionagent.clothesstate.FakeEmbedder embedder = new com.fashionagent.clothesstate.FakeEmbedder();
     private final com.fashionagent.clothesstate.FakePattern pattern = new com.fashionagent.clothesstate.FakePattern();
+    private final com.fashionagent.clothesstate.FakePatternVerifier patternGpt = new com.fashionagent.clothesstate.FakePatternVerifier();
     private ClothesInspectService service;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
         var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
                 0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30);
-        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern);
+        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
     }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
 
@@ -136,7 +137,7 @@ class ClothesInspectServiceTest {
                 List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
                 0.3, 0.25, "", 30);
-        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern);
+        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
         verifier.ready = true;
         // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
         assertThat(svc.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
@@ -290,6 +291,39 @@ class ClothesInspectServiceTest {
         InspectResult failed = service.inspect(photo, "laid", null);
         assertThat(failed.garments().getFirst().pattern()).isNull();
         assertThat(failed.garments()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("무늬 모름: 내려놓은 사진·동의했을 때만 옷 박스를 GPT에게 물어 patternCheckedBy=gpt")
+    void patternGpt() {
+        pattern.ready = true;
+        pattern.answer = null; // 모델은 모름
+        patternGpt.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        // 동의 안 함 → 묻지 않음
+        var g0 = service.inspect(photo, "laid", null, false).garments().getFirst();
+        assertThat(g0.pattern()).isNull();
+        assertThat(g0.patternCheckedBy()).isNull();
+        assertThat(patternGpt.calls).isZero();
+        // 입은 사진 → 묻지 않음
+        service.inspect(photo, "worn", "front", true);
+        assertThat(patternGpt.calls).isZero();
+        // 내려놓은 사진 + 동의 → 옷 박스만 보냄
+        var g = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g.pattern()).isEqualTo("check");
+        assertThat(g.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        assertThat(patternGpt.lastWidth).isEqualTo(128); // 320 × 0.40
+        // 모델이 확실하면 묻지 않고 model
+        pattern.answer = "stripe";
+        var g2 = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g2.patternCheckedBy()).isEqualTo("model");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // GPT가 답을 못 하면 그대로 모름
+        pattern.answer = null;
+        patternGpt.answer = null;
+        assertThat(service.inspect(photo, "laid", null, true).garments().getFirst().pattern()).isNull();
     }
 
     @Test

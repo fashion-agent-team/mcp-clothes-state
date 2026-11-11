@@ -34,7 +34,7 @@
 
 - **얼룩·찢어짐을 찾는 것까지가 이 서버 일입니다.** 어떻게 말할지(빨기, 다른 옷으로 바꾸기)는 agent의 GPT가 결과 글만 보고 정합니다.
 - 모델은 이 서버 안에서 돌립니다. **옷 전체 사진은 외부로 보내지 않고 저장하지 않습니다.**
-- 확실하지 않은 결함은 사용자가 동의했을 때(`allowGpt=true`)만 **그 부분 조각만** 잘라 GPT에게 묻습니다([GPT 확인](#gpt-확인)).
+- 확실하지 않은 결함은 사용자가 동의했을 때(`allowGpt=true`)만 **그 부분 조각만** 잘라 GPT에게 묻습니다([GPT 확인](#gpt-확인)). 무늬를 모르는 옷은 내려놓은 사진일 때만 그 옷 박스를 묻고 저장하지 않습니다.
 - 저장하는 것은 GPT가 결함이라고 한 조각뿐이고, 다시 학습할 후보로 30일만 보관합니다.
 - 한 장에 옷이 여러 벌 있을 수 있습니다(두 벌 놓고 비교).
 - 실패해도 예외를 던지지 않고 `{"error": {"code", "message"}}`를 돌려줍니다.
@@ -66,6 +66,7 @@
       "colorFamily": "navy",
       "tone": "dark",             // light | mid | dark
       "pattern": "stripe",        // plain | stripe | check | floral | dot | graphic | animal | other, 모르면 null
+      "patternCheckedBy": "model", // model | gpt(모델이 몰라서 GPT에게 물음) | null
       "material": null,           // 니트·가디건만 "니트", 나머지 null
       "notes": null,
       "formality": "smart",       // 이름으로 분명한 것만, 나머지 unknown
@@ -132,7 +133,7 @@
 3. **옷 찾기** (fashion12): 옷 박스를 찾습니다. `laid`는 확신도 0.25 이상, `worn`은 0.4 이상을 옷으로 봅니다. 종류가 달라도 박스가 거의 같으면(IoU 0.7) 한 벌로 합치고, 최대 6벌까지 돌려줍니다. 모델이 없거나 옷을 못 찾으면 사진 전체를 옷 한 벌(`category: other`)로 봅니다.
 4. **얼룩·찢어짐 찾기** (v6): 확신도 0.2 이상 박스를 받습니다. 각 결함은 박스 중심이 들어가는 옷(겹치면 더 작은 옷)에 붙입니다.
 5. **판단**: 0.5 이상은 바로 `defects`, 0.2~0.5는 GPT 확인([아래](#판단-기준)).
-6. **무늬** (pattern8): 옷 박스를 8% 넓혀 잘라 8종으로 나눕니다. 1등이 무늬인데 확률이 0.7보다 낮으면 `null`(모름), 신발은 `null`입니다([아래](#무늬-8종-yolo26n_pattern8onnx)).
+6. **무늬** (pattern8): 옷 박스를 8% 넓혀 잘라 8종으로 나눕니다. 1등이 무늬인데 확률이 0.7보다 낮으면 "모름"이고, 동의한 사용자의 내려놓은 사진이면 그 옷 박스만 GPT에게 물어 `patternCheckedBy: gpt`로 채웁니다. 그래도 모르면 `null`, 신발은 `null`입니다([아래](#무늬-8종-yolo26n_pattern8onnx)).
 7. **색**: 학습 없이 옷 박스 안 픽셀로 정합니다. 색을 세 무리로 나눠 가장 큰 무리를 쓰고, 둘레 띠의 절반 넘게 차지한 색(흰 배경판 등)은 배경으로 건너뛰고, 입은 사진은 피부색을 뺍니다. 노란 조명이나 무늬 옷은 틀릴 수 있습니다.
 8. **로그**: 단계별 시간(풀기·옷 종류·얼룩·GPT·색·무늬·전체 ms)과 개수만 남깁니다. 사진 내용은 남기지 않습니다.
 
@@ -264,7 +265,8 @@ GPT에게 묻는 사진은 전체의 8.3%, 한 번에 약 0.9초입니다. 시�
 - 내려놓은 옷 1,959장(중고 의류): 정확도 **0.884**, 무지/무늬 구분 **0.919**. 꽃무늬 0.84, 체크 0.82, 줄무늬 0.74, 도트 0.40
 - 입은 옷 7,465개(Fashionpedia): 정확도 0.845
 - 기준 0.7일 때 내려놓은 옷에서 무지를 무늬로 말하는 비율 **1.4%**, 무늬 종류를 틀리는 비율 4.5%, 모름 6.2%
-- 약한 곳: 도트·기타 무늬·글자그림. 무늬 옷의 약 15%는 무지로 봅니다.
+- "모름"이면 GPT(gpt-4.1-mini)에게 옷 박스를 물음: 내려놓은 옷 정확도 86.5% → **90.5%**, 모름 6.2% → 0.1%, 응답 중앙값 0.9초. 대신 무지를 무늬로 2.3%, 종류 틀림 7.3%로 조금 늘어 `patternCheckedBy: gpt`로 구분합니다. 입은 사진은 몸·얼굴이 들어갈 수 있어 보내지 않습니다.
+- 약한 곳: 도트·기타 무늬·글자그림. 무늬 옷의 약 15%는 무지로 봅니다(특히 줄무늬).
 
 모델은 6MB이고 입력은 옷 박스를 8% 넓혀 자른 뒤 짧은 변 224로 줄여 가운데를 자릅니다(학습 평가와 같음). 학습 기록은 [docs/training-log.md](docs/training-log.md#무늬-모델-11-11).
 
@@ -359,7 +361,7 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 ```
 
 - 모델 대신 가짜 검출기(`FakeDetector`, `FakeGarmentDetector`), 가짜 벡터 모델(`FakeEmbedder`, 입출력 모양만 같은 작은 ONNX `test/resources/models/tiny-embed.onnx`)과 가짜 GPT(`FakeVerifier`)를 써서 키·네트워크 없이 돕니다.
-- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`), 무늬 판단·입력 만들기(`OnnxPatternClassifierTest`). 가짜 무늬 모델은 `FakePattern`.
+- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`), 무늬 판단·입력 만들기·GPT 무늬 요청(`OnnxPatternClassifierTest`, `OpenAiPatternVerifierTest`). 가짜 무늬 모델은 `FakePattern`, `FakePatternVerifier`.
 - PR과 `develop`·`main` 푸시 때 GitHub Actions(`.github/workflows/ci.yml`)가 Java 21로 같은 테스트를 돌립니다.
 
 ## 폴더 구성
@@ -447,7 +449,7 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 - [ ] 옆·뒷모습 입은 사진 시험
 - [ ] 실제 FashionSigLIP 모델로 이슈 #15 측정 스크립트와 벡터가 같은지 확인
 - 다른 레포: 옷장은 `embedding`을 pgvector에 저장(박창근 님, 이슈 #15). 약속 문서(mcp-tools.md)에 `embedding`·`embeddingModel` 추가 필요
-- 다른 레포: 약속 문서(mcp-tools.md)에 `pattern` 값 8종과 `null`(모름) 추가 필요. agent가 무늬끼리 겹침, 무늬 옷 색 판단에 쓰는 건 agent 담당과 정함
+- 다른 레포: 약속 문서(mcp-tools.md)에 `pattern` 값 8종·`null`(모름)과 `patternCheckedBy` 추가 필요. agent가 무늬끼리 겹침, 무늬 옷 색 판단에 쓰는 건 agent 담당과 정함
 - 다른 레포: agent는 동의한 사용자에게만 `allowGpt=true`를 보내고 `checkedBy: gpt`는 약하게 말하기, 앱은 처음 쓸 때 동의 화면
 
 ## 브랜치와 비밀 값

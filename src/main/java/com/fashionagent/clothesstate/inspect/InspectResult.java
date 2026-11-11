@@ -31,7 +31,10 @@ public record InspectResult(
             String colorName,
             String colorFamily,
             String tone,
+            /** plain·stripe·check·floral·dot·graphic·animal·other, 모르면 null. */
             String pattern,
+            /** pattern을 정한 쪽: model 또는 gpt(모델이 몰라서 옷 박스를 GPT에게 물음). pattern이 null이면 null. */
+            String patternCheckedBy,
             String material,
             String notes,
             String formality,

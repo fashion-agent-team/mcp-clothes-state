@@ -6,6 +6,8 @@ import java.awt.image.BufferedImage;
 /** 시험용 무늬 모델. 기본은 준비 안 됨(pattern null). 준비되면 answer를 돌려줍니다. */
 public class FakePattern implements PatternClassifier {
 
+    public double confidence = 0.9;
+
     public boolean ready = false;
     public boolean fail = false;
     public String answer = "stripe";
@@ -27,6 +29,6 @@ public class FakePattern implements PatternClassifier {
         if (fail) {
             throw new IllegalStateException("boom");
         }
-        return new Result(answer, answer == null ? "dot" : answer, 0.9);
+        return new Result(answer, answer == null ? "dot" : answer, confidence);
     }
 }

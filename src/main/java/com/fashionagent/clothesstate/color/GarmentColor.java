@@ -137,7 +137,9 @@ public final class GarmentColor {
      * 검정·네이비·차콜처럼 둘 다 어두운 색은 듣는 사람에게 같은 색처럼 들려서 다른 색으로 치지 않습니다.
      */
     public static Result secondColor(BufferedImage crop, String mode, Result main) {
-        int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : garmentPixels(crop);
+        // 박스 가운데(가로 25~75%, 세로 20~80%)만 봅니다. 무늬는 옷 전체에 퍼져 있지만 팔·목 피부, 손, 배경은 박스 가장자리에 있어서요.
+        // 2026-11-12: 흰 티를 입은 모델 사진에서 피부를 "갈색"으로 봄. 피부색 필터는 베이지 체크 선까지 지워서 쓰지 않습니다.
+        int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : centerGarmentPixels(crop);
         if (rgb.length < 40 || main == null) {
             return null;
         }
@@ -165,6 +167,22 @@ public final class GarmentColor {
             }
         }
         return best;
+    }
+
+    /**
+     * 박스 가운데의 옷 픽셀. 박스 테두리의 60% 이상이 한 색(바닥)일 때만 그 색과 먼 픽셀을 남깁니다(바지 다리 사이 바닥 등).
+     * 테두리가 옷 무늬(줄무늬 두 색 반반)면 바닥이 아니라서 빼지 않습니다. 너무 적게 남으면 가운데 그대로.
+     */
+    static int[] centerGarmentPixels(BufferedImage crop) {
+        int[] ring = border(crop);
+        int bg = median(ring);
+        int[] center = region(crop, 0.25, 0.2, 0.75, 0.8);
+        long floorLike = Arrays.stream(ring).filter(p -> distance(p, bg) <= 40).count();
+        if (floorLike < ring.length * 0.6) {
+            return center;
+        }
+        int[] kept = Arrays.stream(center).filter(p -> distance(p, bg) > 40).toArray();
+        return kept.length < center.length * 0.05 ? center : kept;
     }
 
     /** 귀로 들었을 때 같은 색: 같은 계열이거나, 둘 다 어두운 무채색·네이비(검정·네이비·차콜·어두운 갈색)이거나, 흰색과 밝은 회색. */

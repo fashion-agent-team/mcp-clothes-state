@@ -50,6 +50,7 @@ public class ClothesInspectService {
 
     private static final Logger log = LoggerFactory.getLogger(ClothesInspectService.class);
     private static final Set<String> MODES = Set.of("laid", "worn");
+    // agent는 앞·뒤만 보냅니다(2026-11-12 옆모습 뺌). side는 예전 호출이 깨지지 않게 받아만 둡니다.
     private static final Set<String> VIEWS = Set.of("front", "side", "back");
     private static final InspectResult.Box WHOLE = new InspectResult.Box(0, 0, 1, 1);
 
@@ -101,7 +102,7 @@ public class ClothesInspectService {
         }
         String v = view == null || view.isBlank() || m.equals("laid") ? null : view.strip();
         if (v != null && !VIEWS.contains(v)) {
-            throw new ClothesStateException("bad_request", "view는 front, side, back 중 하나여야 해요.");
+            throw new ClothesStateException("bad_request", "view는 front 또는 back이어야 해요.");
         }
         if (!detector.ready()) {
             throw new ClothesStateException("not_ready", "옷 상태 확인은 아직 준비 중이에요.");

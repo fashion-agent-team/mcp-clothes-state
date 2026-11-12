@@ -8,6 +8,7 @@ import com.fashionagent.clothesstate.detect.DefectDetector;
 import com.fashionagent.clothesstate.detect.Detection;
 import com.fashionagent.clothesstate.detect.GarmentDetector;
 import com.fashionagent.clothesstate.embed.GarmentEmbedder;
+import com.fashionagent.clothesstate.embed.GarmentTextCheck;
 import com.fashionagent.clothesstate.image.Images;
 import com.fashionagent.clothesstate.pattern.PatternClassifier;
 import com.fashionagent.clothesstate.pattern.OpenAiPatternVerifier;
@@ -133,7 +134,13 @@ public class ClothesInspectService {
         }
 
         List<Slot> slots = findGarments(img, m);
+        int textChanged = textCheck(img, slots, m);
         long tGarments = System.nanoTime();
+        if (slots.isEmpty()) {
+            // 빈 벽·바닥처럼 옷이 아닌 것만 보였음(2026-11-12 시뮬: 빈 벽을 "흰색 티셔츠"·"치마"로 봄). agent가 다시 비춰 달라고 함.
+            log.info("clothes_inspect {}x{} {} garments=0 (글 벡터로 옷이 아니라고 봄)", img.getWidth(), img.getHeight(), m);
+            return new InspectResult(List.of(), null, "ok", "model", version, null, null);
+        }
         // 1) tell 이상은 바로 결함, ask~tell은 애매한 것으로 모음
         List<Detection> unsure = new ArrayList<>();
         for (Detection d : detector.detect(img, props.askThreshold())) {
@@ -194,12 +201,13 @@ public class ClothesInspectService {
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
                     color.colorFamily(), color.tone(), sub == null ? null : sub.colorName(),
                     sub == null ? null : sub.colorFamily(), pats[i][0], pats[i][1], k.material(), null, k.formality(), List.copyOf(s.defects),
-                    s.box, m.equals("laid") ? position(s.box) : null, s.confidence, embed ? embed(img, s.box) : null));
+                    s.box, m.equals("laid") ? position(s.box) : null, s.confidence,
+                    !embed ? null : s.embedding != null ? s.embedding : embed(img, s.box)));
         }
         long tEnd = System.nanoTime();
         // 단계별 시간(ms). 사진 내용은 남기지 않고 크기와 개수만.
-        log.info("clothes_inspect {}x{} {} garments={} defects={} gpt={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, GPT {}ms, 무늬 {}ms, 색·벡터·정리 {}ms, 전체 {}ms",
-                img.getWidth(), img.getHeight(), m, out.size(),
+        log.info("clothes_inspect {}x{} {} garments={} textChanged={} defects={} gpt={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, GPT {}ms, 무늬 {}ms, 색·벡터·정리 {}ms, 전체 {}ms",
+                img.getWidth(), img.getHeight(), m, out.size(), textChanged,
                 out.stream().mapToInt(g -> g.defects().size()).sum(), gptAsked, candidateCount,
                 ms(t0, tDecode), ms(tDecode, tGarments), ms(tGarments, tModel), ms(tModel, tDefects), ms(tDefects, tPatterns), ms(tPatterns, tEnd),
                 ms(t0, tEnd));
@@ -408,6 +416,48 @@ public class ClothesInspectService {
     }
 
     /** 옷 박스들. laid는 왼쪽부터, worn은 위(상의)부터 차례로 g1, g2... */
+    /**
+     * 옷 박스 이미지 벡터를 옷 이름 글 벡터와 견줍니다(옷 벡터 모델과 글 벡터 파일이 있을 때만).
+     * <ul>
+     * <li>"빈 벽·바닥"이 어떤 옷 이름보다 noneMargin 넘게 맞으면 그 박스를 뺍니다.</li>
+     * <li>옷 종류 모델 확신도가 낮으면(내려놓은 사진 keepLaid, 입은 사진 keepWorn 미만) 글 벡터가 고른 이름으로 바꿉니다.
+     * 사진 전체를 한 벌로 본 경우(종류 모름)도 바꿉니다. 신발은 모델이 강해서(mAP50 0.99) 그대로 둡니다.</li>
+     * </ul>
+     * 근거: docs/training-log.md "글 벡터로 종류 다시 보기"(2026-11-12). 바꾼 옷 수를 돌려줍니다.
+     */
+    int textCheck(BufferedImage img, List<Slot> slots, String mode) {
+        GarmentTextCheck check = embedder.ready() ? embedder.textCheck() : null;
+        if (check == null) {
+            return 0;
+        }
+        var p = check.props();
+        double keep = "worn".equals(mode) ? p.keepWorn() : p.keepLaid();
+        int changed = 0;
+        for (var it = slots.iterator(); it.hasNext();) {
+            Slot s = it.next();
+            s.embedding = embed(img, s.box);
+            if (s.embedding == null) {
+                continue;
+            }
+            GarmentTextCheck.Result r = check.check(s.embedding);
+            if (r.notGarment(p.noneMargin())) {
+                it.remove();
+                continue;
+            }
+            boolean unsure = s.whole || s.confidence == null || s.confidence < keep;
+            // 코트·재킷이 애매해 "겉옷"이라고 한 것은 글 벡터도 둘을 잘 못 가려서 그대로 둠
+            boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(r.name()) || "coat".equals(r.name()));
+            if (unsure && r.name() != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
+                GarmentKind k = GarmentKind.of(r.name());
+                if (!k.name().equals(s.kind.name())) {
+                    s.kind = k;
+                    changed++;
+                }
+            }
+        }
+        return changed;
+    }
+
     private List<Slot> findGarments(BufferedImage img, String mode) {
         List<Slot> slots = new ArrayList<>();
         if (garments.ready()) {
@@ -491,7 +541,9 @@ public class ClothesInspectService {
 
     /** 응답을 만드는 동안 옷 한 벌. */
     static final class Slot {
-        final GarmentKind kind;
+        GarmentKind kind;
+        /** textCheck에서 미리 만든 옷 벡터(응답에 다시 씀). */
+        float[] embedding;
         final InspectResult.Box box;
         final Double confidence;
         final boolean whole;

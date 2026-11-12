@@ -43,6 +43,13 @@ clothes:
   embed:
     model: ${CLOTHES_EMBED_MODEL:}
     version: marqo-fashionSigLIP
+  # 옷 벡터를 옷 이름 글 벡터(미리 계산, 레포에 있음)와 견줘 종류를 다시 보고 빈 벽·바닥을 뺌. 옷 벡터 모델이 있을 때만 동작.
+  # 근거: docs/training-log.md "글 벡터로 종류 다시 보기"(2026-11-12)
+  text-check:
+    vectors: ${CLOTHES_TEXT_VECTORS:classpath:models/garment-text-fsiglip.json}
+    none-margin: 0.03
+    keep-laid: 0.7
+    keep-worn: 0.9
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

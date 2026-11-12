@@ -29,8 +29,15 @@ public class OnnxGarmentEmbedder implements GarmentEmbedder, AutoCloseable {
     /** 입력 batch가 정해져 있지 않으면 원본·뒤집기를 한 번에 넣음. */
     private final boolean batch2;
 
+    private final GarmentTextCheck textCheck;
+
     public OnnxGarmentEmbedder(EmbedProperties props) {
+        this(props, null);
+    }
+
+    public OnnxGarmentEmbedder(EmbedProperties props, GarmentTextCheck textCheck) {
         this.props = props;
+        this.textCheck = textCheck;
         OrtEnvironment e = null;
         OrtSession s = null;
         String in = null;
@@ -62,6 +69,11 @@ public class OnnxGarmentEmbedder implements GarmentEmbedder, AutoCloseable {
     @Override
     public boolean ready() {
         return session != null;
+    }
+
+    @Override
+    public GarmentTextCheck textCheck() {
+        return textCheck != null && textCheck.ready() ? textCheck : null;
     }
 
     @Override

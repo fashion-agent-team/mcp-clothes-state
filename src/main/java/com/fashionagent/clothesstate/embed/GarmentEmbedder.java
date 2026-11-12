@@ -12,4 +12,9 @@ public interface GarmentEmbedder {
 
     /** box는 사진 비율(0~1) x, y, w, h. */
     float[] embed(BufferedImage image, double x, double y, double w, double h);
+
+    /** 옷 이름 글 벡터 확인(종류 다시 보기·옷 아닌 것 빼기). 없으면 null. */
+    default GarmentTextCheck textCheck() {
+        return null;
+    }
 }

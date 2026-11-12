@@ -11,6 +11,14 @@ public class FakeEmbedder implements GarmentEmbedder {
     public boolean ready = false;
     public boolean fail = false;
     public final List<double[]> calls = new ArrayList<>();
+    /** 있으면 박스마다 이 벡터를 차례로 돌려줌(마지막 것을 반복). 글 벡터 확인 시험용. */
+    public List<float[]> vectors = null;
+    public com.fashionagent.clothesstate.embed.GarmentTextCheck textCheck = null;
+
+    @Override
+    public com.fashionagent.clothesstate.embed.GarmentTextCheck textCheck() {
+        return textCheck;
+    }
 
     @Override
     public boolean ready() {
@@ -27,6 +35,9 @@ public class FakeEmbedder implements GarmentEmbedder {
         calls.add(new double[] {x, y, w, h});
         if (fail) {
             throw new IllegalStateException("boom");
+        }
+        if (vectors != null) {
+            return vectors.get(Math.min(calls.size() - 1, vectors.size() - 1));
         }
         return new float[] {(float) x, (float) y, 1f};
     }

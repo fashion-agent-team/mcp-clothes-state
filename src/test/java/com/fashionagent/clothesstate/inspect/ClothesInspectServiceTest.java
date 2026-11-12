@@ -417,4 +417,82 @@ class ClothesInspectServiceTest {
         assertThat(GarmentKind.of("outer_unsure")).isEqualTo(new GarmentKind("outer", "겉옷", "unknown", null));
         assertThat(GarmentKind.of("모름")).isEqualTo(GarmentKind.OTHER);
     }
+
+    // ── 글 벡터로 종류 다시 보기·옷 아닌 것 빼기 (2026-11-12) ──
+
+    /** 3차원 시험 글 벡터: shirt=(1,0,0), dress=(0,1,0), shoes=(0.6,0.8,0) 대신 jacket, none=(0,0,1). */
+    private com.fashionagent.clothesstate.embed.GarmentTextCheck textCheck() {
+        String json = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"jacket","vector":[0.7,0.7,0]},{"name":"none","vector":[0,0,1]}]}""";
+        return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(json.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9));
+    }
+
+    @Test
+    @DisplayName("빈 벽처럼 글 벡터가 '옷 아님'이면 옷을 빼고 garments를 비워 돌려준다")
+    void wallIsNotGarment() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.1f, 0.99f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("skirt", 0.85, 0.0, 0.0, 1.0, 1.0));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.garments()).isEmpty();
+        assertThat(r.lighting()).isEqualTo("ok");
+    }
+
+    @Test
+    @DisplayName("입은 사진에서 모델 확신도가 0.9 미만이면 글 벡터가 고른 종류로 바꾼다")
+    void wornLowConfidenceUsesText() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.99f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("dress");
+        assertThat(g.name()).isEqualTo("원피스");
+        // 확신도는 모델 값 그대로, 벡터는 다시 만들지 않음
+        assertThat(g.confidence()).isEqualTo(0.6);
+        assertThat(embedder.calls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("내려놓은 사진에서 모델 확신도가 0.7 이상이면 모델 종류를 그대로, 신발은 늘 그대로")
+    void laidConfidentKeepsModel() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.99f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.8, 0.05, 0.1, 0.4, 0.6),
+                new Detection("shoes", 0.3, 0.6, 0.6, 0.3, 0.3));
+        var gs = service.inspect(photo, "laid", null).garments();
+        assertThat(gs).extracting(InspectResult.Garment::name).containsExactly("셔츠", "신발");
+    }
+
+    @Test
+    @DisplayName("사진 전체를 한 벌로 볼 때(종류 모름)는 글 벡터로 종류를 정한다")
+    void wholeUsesText() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.99f, 0.1f, 0f});
+        var g = service.inspect(photo, "laid", null).garments().getFirst();
+        assertThat(g.category()).isEqualTo("top");
+        assertThat(g.name()).isEqualTo("셔츠");
+    }
+
+    @Test
+    @DisplayName("코트·재킷이 애매한 겉옷은 글 벡터가 재킷이라 해도 겉옷 그대로")
+    void outerUnsureStays() {
+        assertThat(GarmentKind.of("outer_unsure").name()).isEqualTo("겉옷");
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.7f, 0.7f, 0f});
+        var slots = new java.util.ArrayList<ClothesInspectService.Slot>(List.of(new ClothesInspectService.Slot(
+                GarmentKind.of("outer_unsure"), new InspectResult.Box(0.1, 0.1, 0.5, 0.5), 0.5, false)));
+        service.textCheck(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), slots, "laid");
+        assertThat(slots.getFirst().kind.name()).isEqualTo("겉옷");
+    }
 }

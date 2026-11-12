@@ -28,8 +28,11 @@ public class DetectorConfig {
 
     /** 옷마다 이미지 벡터(이슈 #15). clothes.embed.model이 비었거나 파일이 없으면 embedding 없이 응답. */
     @Bean(destroyMethod = "close")
-    OnnxGarmentEmbedder garmentEmbedder(EmbedProperties props) {
-        return new OnnxGarmentEmbedder(props);
+    OnnxGarmentEmbedder garmentEmbedder(EmbedProperties props,
+            com.fashionagent.clothesstate.embed.TextCheckProperties text, ResourceLoader loader) {
+        var check = text.vectors() == null || text.vectors().isBlank() ? null
+                : new com.fashionagent.clothesstate.embed.GarmentTextCheck(loader.getResource(text.vectors()), text);
+        return new OnnxGarmentEmbedder(props, check);
     }
 
     /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. */

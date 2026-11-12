@@ -31,6 +31,12 @@ public record InspectResult(
             String colorName,
             String colorFamily,
             String tone,
+            /**
+             * 무늬 옷(pattern이 plain·null이 아님)의 두 번째 색. 체크·줄무늬·호피처럼 색이 섞인 옷을 "네이비·베이지 체크 셔츠"로
+             * 읽어 주려고 넣습니다. 옷 픽셀에서 colorName과 다른 계열의 큰 색 무리가 없으면 null. (2026-11-12 체크 셔츠를 "검정 셔츠"라 함)
+             */
+            String subColorName,
+            String subColorFamily,
             /** plain·stripe·check·floral·dot·graphic·animal·other, 모르면 null. */
             String pattern,
             /** pattern을 정한 쪽: model 또는 gpt(모델이 몰라서 옷 박스를 GPT에게 물음). pattern이 null이면 null. */

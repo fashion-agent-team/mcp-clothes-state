@@ -66,6 +66,8 @@
       "colorName": "남색",
       "colorFamily": "navy",
       "tone": "dark",             // light | mid | dark
+      "subColorName": "흰색",     // 무늬 옷만: colorName과 귀로 다른 두 번째 색(체크·줄·호피의 섞인 색). 없으면 null
+      "subColorFamily": "white",
       "pattern": "stripe",        // plain | stripe | check | floral | dot | graphic | animal | other, 모르면 null
       "patternCheckedBy": "model", // model | gpt(모델이 몰라서 GPT에게 물음) | null
       "material": null,           // 니트·가디건만 "니트", 나머지 null

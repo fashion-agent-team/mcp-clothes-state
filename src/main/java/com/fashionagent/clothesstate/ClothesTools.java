@@ -39,7 +39,7 @@ public class ClothesTools {
     public Object clothesInspect(
             @ToolParam(description = "옷 사진 JPEG base64. 입은 사진도 좌우를 뒤집지 않고 원본 그대로. agent가 넣습니다.") String imageBase64,
             @ToolParam(required = false, description = "laid(내려놓은 옷을 위에서 찍음, 기본값) 또는 worn(옷을 입고 폰 앞에 섬)") String mode,
-            @ToolParam(required = false, description = "mode=worn일 때만: front, side, back") String view,
+            @ToolParam(required = false, description = "mode=worn일 때만: front 또는 back") String view,
             @ToolParam(required = false, description = "사용자가 GPT 확인에 동의했으면 true. 그때만 애매한 부분 조각을 GPT에게 물음. 기본 false") Boolean allowGpt) {
         try {
             return service.inspect(imageBase64, mode, view, allowGpt);

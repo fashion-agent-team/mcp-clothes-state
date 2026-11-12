@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * clothes_inspect 결과 (앱 레포 docs/contracts/mcp-tools.md). 옷 종류·박스는 옷 종류 모델로, 색은 박스 안 픽셀로
- * 정합니다. 격식(formality)은 아직 unknown, 무늬·소재는 null입니다.
+ * 정합니다. 무늬(pattern)는 무늬 모델로 정하고 모르면 null, 격식(formality)은 아직 unknown, 소재는 null입니다.
  * embedding은 옷 박스의 이미지 벡터이고 사진은 저장하지 않습니다(이슈 #15).
  */
 public record InspectResult(
@@ -31,7 +31,10 @@ public record InspectResult(
             String colorName,
             String colorFamily,
             String tone,
+            /** plain·stripe·check·floral·dot·graphic·animal·other, 모르면 null. */
             String pattern,
+            /** pattern을 정한 쪽: model 또는 gpt(모델이 몰라서 옷 박스를 GPT에게 물음). pattern이 null이면 null. */
+            String patternCheckedBy,
             String material,
             String notes,
             String formality,

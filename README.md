@@ -1,6 +1,6 @@
 # mcp-clothes-state
 
-옷 사진 한 장을 받아 **옷 한 벌마다 종류·색·얼룩·찢어짐**을 찾아 주는 MCP 서버입니다.
+옷 사진 한 장을 받아 **옷 한 벌마다 종류·색·무늬·얼룩·찢어짐**을 찾아 주는 MCP 서버입니다.
 같이 입을 옷들의 **색 조합과 자리(면접·장례식 등)에 맞는 색**도 봅니다(`outfit_color_check`).
 패션 에이전트(시각장애인용 음성 코디 도우미)의 한 부분이고, 옷 추천 2단계에서 agent가 사진마다 부릅니다.
 
@@ -12,8 +12,8 @@
 | 포트 · 엔드포인트 | `8093` · `http://mcp-clothes-state:8093/mcp` (Streamable HTTP, sync) |
 | 상태 확인 | `GET /actuator/health` |
 | 기술 | Java 21, Spring Boot 4.0.9, Spring AI MCP Server 2.0.2, ONNX Runtime 1.20.0 (CPU) |
-| 모델 | 얼룩·찢어짐 `yolo26n_v6.onnx`, 옷 종류 12종 `yolo26n_fashion12.onnx`, 옷 색 20가지 `color20_cnn.onnx` (모두 우리가 학습) |
-| `modelVersion` | `yolo26n-v6+yolo26n-fashion12e` (옷 종류 모델이 없으면 `yolo26n-v6`) |
+| 모델 | 얼룩·찢어짐 `yolo26n_v6.onnx`, 옷 종류 12종 `yolo26n_fashion12.onnx`, 옷 색 20가지 `color20_cnn.onnx`, 무늬 8종 `yolo26n_pattern8.onnx` (모두 우리가 학습) |
+| `modelVersion` | `yolo26n-v6+yolo26n-fashion12e+yolo26n-pattern8` (없는 모델은 빠짐) |
 
 ## 목차
 
@@ -34,9 +34,9 @@
 ## 하는 일과 지키는 것
 
 - **얼룩·찢어짐을 찾는 것까지가 이 서버 일입니다.** 어떻게 말할지(빨기, 다른 옷으로 바꾸기)는 agent의 GPT가 결과 글만 보고 정합니다.
-- 모델은 이 서버 안에서 돌립니다. **옷 전체 사진은 외부로 보내지 않고 저장하지 않습니다.**
-- 확실하지 않은 결함은 사용자가 동의했을 때(`allowGpt=true`)만 **그 부분 조각만** 잘라 GPT에게 묻습니다([GPT 확인](#gpt-확인)).
-- 저장하는 것은 GPT가 결함이라고 한 조각뿐이고, 다시 학습할 후보로 30일만 보관합니다.
+- 모델은 이 서버 안에서 돌립니다. **찍은 사진 전체는 외부로 보내지 않고 저장하지 않습니다.** GPT에는 동의한 사용자일 때 필요한 부분(얼룩 조각, 내려놓은 사진의 옷 한 벌)만 보냅니다.
+- 확실하지 않은 결함은 사용자가 동의했을 때(`allowGpt=true`)만 **그 부분 조각만** 잘라 GPT에게 묻습니다([GPT 확인](#gpt-확인)). 무늬를 모르는 옷은 내려놓은 사진일 때만 그 옷 박스를 묻습니다.
+- 저장하는 것은 GPT가 결함이라고 한 조각과 GPT에게 무늬를 물은 내려놓은 옷 그림뿐이고, 다시 학습할 후보로 30일만 보관합니다. GPT 답도 틀릴 수 있어 사람이 확인한 뒤 학습합니다.
 - 한 장에 옷이 여러 벌 있을 수 있습니다(두 벌 놓고 비교).
 - 실패해도 예외를 던지지 않고 `{"error": {"code", "message"}}`를 돌려줍니다.
 
@@ -66,7 +66,8 @@
       "colorName": "남색",
       "colorFamily": "navy",
       "tone": "dark",             // light | mid | dark
-      "pattern": null,            // 아직 항상 null
+      "pattern": "stripe",        // plain | stripe | check | floral | dot | graphic | animal | other, 모르면 null
+      "patternCheckedBy": "model", // model | gpt(모델이 몰라서 GPT에게 물음) | null
       "material": null,           // 니트·가디건만 "니트", 나머지 null
       "notes": null,
       "formality": "smart",       // 이름으로 분명한 것만, 나머지 unknown
@@ -134,7 +135,8 @@
 4. **얼룩·찢어짐 찾기** (v6): 확신도 0.2 이상 박스를 받습니다. 각 결함은 박스 중심이 들어가는 옷(겹치면 더 작은 옷)에 붙입니다.
 5. **판단**: 0.5 이상은 바로 `defects`, 0.2~0.5는 GPT 확인([아래](#판단-기준)).
 6. **색** (color20): 옷 박스 조각을 64×64로 줄여 색 인식 모델에 넣고 20가지 색 중 하나를 고릅니다([아래](#옷-색-20가지-color20_cnnonnx)). 밝기(`tone`)는 옷 픽셀 중간값으로 보탭니다. 옷 박스가 없으면(사진 전체가 한 벌) 예전처럼 픽셀로 정합니다. 색을 세 무리로 나눠 가장 큰 무리를 쓰고, 둘레 띠의 절반 넘게 차지한 색(흰 배경판 등)은 배경으로 건너뛰고, 입은 사진은 피부색을 뺍니다.
-7. **로그**: 단계별 시간(풀기·옷 종류·얼룩·GPT·색·전체 ms)과 개수만 남깁니다. 사진 내용은 남기지 않습니다.
+7. **무늬** (pattern8): 옷 박스를 8% 넓혀 잘라 8종으로 나눕니다. 1등이 무늬인데 확률이 0.7보다 낮으면 "모름"이고, 동의한 사용자의 내려놓은 사진이면 그 옷 박스만 GPT에게 물어 `patternCheckedBy: gpt`로 채웁니다. 그래도 모르면 `null`, 신발은 `null`입니다([아래](#무늬-8종-yolo26n_pattern8onnx)).
+8. **로그**: 단계별 시간(풀기·옷 종류·얼룩·GPT·무늬·색·전체 ms)과 개수만 남깁니다. 사진 내용은 남기지 않습니다.
 
 모델 입력은 학습 때와 같게 비율을 유지해 긴 변 512로 줄이고, 짧은 변은 32의 배수까지만 회색으로 채웁니다. 그래서 확신도가 학습·평가 때(PyTorch)와 같습니다.
 
@@ -245,6 +247,30 @@ GPT에게 묻는 사진은 전체의 8.3%, 한 번에 약 0.9초입니다. 시�
 
 > **재학습 진행 중 (2026-11-10)**: 내려놓은 옷을 보강하려고 중고 의류 데이터로 다시 학습하고 있습니다. 결과가 정해지기 전까지 서버는 위 fashion12를 씁니다.
 
+### 무늬 8종: `yolo26n_pattern8.onnx`
+
+| `pattern` | 뜻 |
+| --- | --- |
+| plain | 무지 |
+| stripe | 줄무늬 |
+| check | 체크(하운즈투스·아가일 포함) |
+| floral | 꽃·식물 무늬 |
+| dot | 도트 |
+| graphic | 글자·그림 프린트 |
+| animal | 호피·지브라 같은 동물 가죽 무늬 |
+| other | 기타 무늬(기하학·페이즐리·카모 등) |
+| `null` | 모름(무늬 같지만 확신 0.7 미만), 신발, 모델 없음 |
+
+**점수** (2026-11-11, 학습에 안 쓴 사진)
+
+- 내려놓은 옷 1,959장(중고 의류): 정확도 **0.884**, 무지/무늬 구분 **0.919**. 꽃무늬 0.84, 체크 0.82, 줄무늬 0.74, 도트 0.40
+- 입은 옷 7,465개(Fashionpedia): 정확도 0.845
+- 기준 0.7일 때 내려놓은 옷에서 무지를 무늬로 말하는 비율 **1.4%**, 무늬 종류를 틀리는 비율 4.5%, 모름 6.2%
+- "모름"이면 GPT(gpt-4.1-mini)에게 옷 박스를 물음: 내려놓은 옷 정확도 86.5% → **90.5%**, 모름 6.2% → 0.1%, 응답 중앙값 0.9초. 대신 무지를 무늬로 2.3%, 종류 틀림 7.3%로 조금 늘어 `patternCheckedBy: gpt`로 구분합니다. 입은 사진은 몸·얼굴이 들어갈 수 있어 보내지 않습니다.
+- 약한 곳: 도트·기타 무늬·글자그림. 무늬 옷의 약 15%는 무지로 봅니다(특히 줄무늬).
+
+모델은 6MB이고 입력은 옷 박스를 8% 넓혀 자른 뒤 짧은 변 224로 줄여 가운데를 자릅니다(학습 평가와 같음). 학습 기록은 [docs/training-log.md](docs/training-log.md#무늬-모델-11-11).
+
 ### 속도
 
 - 젯슨에서 재 보니 TensorRT FP16이 점수는 그대로이고 모델 계산이 약 4배 빨랐습니다(얼룩 + 옷 종류 약 50ms). INT8은 점수가 약 0.1 떨어져 쓰지 않습니다([docs/training-log.md](docs/training-log.md#젯슨-정밀도인트-체크속도메모리-11-09-저녁)).
@@ -318,6 +344,8 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 | `clothes.color-model` | `CLOTHES_COLOR_MODEL` | `classpath:models/color20_cnn.onnx` | 색 인식 모델. `none`이나 없는 파일이면 픽셀 규칙으로 색을 정함 |
 | `clothes.garment-threshold` | | `0.4` | 입은 사진에서 옷으로 볼 최소 확신도 |
 | `clothes.laid-garment-threshold` | | `0.25` | 내려놓은 옷 사진의 최소 확신도 |
+| `clothes.pattern.model` | `CLOTHES_PATTERN_MODEL` | `classpath:models/yolo26n_pattern8.onnx` | 무늬 모델. 없으면 `pattern`은 `null` |
+| `clothes.pattern.sure-threshold` | | `0.7` | 1등이 무늬일 때 이 확률 이상이어야 무늬라고 말함 |
 | `clothes.embed.model` | `CLOTHES_EMBED_MODEL` | (없음) | 옷 벡터 모델(FashionSigLIP vision ONNX) 경로. 비면 `embedding` 없음 |
 | `clothes.embed.version` | | `marqo-fashionSigLIP` | 응답의 `embeddingModel` |
 | `clothes.gpt.api-key` | `OPENAI_API_KEY` | (없음) | 비면 GPT를 쓰지 않음 |
@@ -335,7 +363,7 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 ```
 
 - 모델 대신 가짜 검출기(`FakeDetector`, `FakeGarmentDetector`), 가짜 벡터 모델(`FakeEmbedder`, 입출력 모양만 같은 작은 ONNX `test/resources/models/tiny-embed.onnx`)과 가짜 GPT(`FakeVerifier`)를 써서 키·네트워크 없이 돕니다. 색 인식 모델(`color20_cnn.onnx`, 0.8MB)만은 `ColorModelTest`에서 실제로 돌립니다.
-- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`, `ColorModelTest`), 색 조합(`ColorHarmonyTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`).
+- 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`, `ColorModelTest`), 색 조합(`ColorHarmonyTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`), 무늬 판단·입력 만들기·GPT 무늬 요청(`OnnxPatternClassifierTest`, `OpenAiPatternVerifierTest`). 가짜 무늬 모델은 `FakePattern`, `FakePatternVerifier`.
 - PR과 `develop`·`main` 푸시 때 GitHub Actions(`.github/workflows/ci.yml`)가 Java 21로 같은 테스트를 돌립니다.
 
 ## 폴더 구성
@@ -347,10 +375,11 @@ src/main/java/com/fashionagent/clothesstate/
   detect/                    ONNX YOLO 실행(얼룩·찢어짐, 옷 종류)
   verify/                    GPT 확인, 학습 후보 저장
   color/                     색 인식 모델(ColorModel)·픽셀 규칙으로 색 이름, 색 조합 규칙(ColorHarmony)
+  pattern/                   무늬 모델 실행(8종), GPT 무늬 확인
   image/                     사진 풀기, letterbox
 src/main/resources/
   application.yml
-  models/                    yolo26n_v6.onnx, yolo26n_fashion12.onnx, color20_cnn.onnx
+  models/                    yolo26n_v6.onnx, yolo26n_fashion12.onnx, color20_cnn.onnx, yolo26n_pattern8.onnx
 src/test/java/               테스트
 training/                    학습 스크립트·결과 CSV·데이터 출처(사진·.pt는 넣지 않음)
 docs/                        학습 기록, 모델 비교, 성능 기준, GPT 확인
@@ -389,6 +418,13 @@ docs/                        학습 기록, 모델 비교, 성능 기준, GPT �
 | [Clothing dataset](https://github.com/alexeygrigorev/clothing-dataset) (Alexey Grigorev) | CC0 | 내려놓거나 옷걸이에 건 옷. 학습 4,104장, 평가 208장 |
 | More clothes·얼룩 데이터의 옷 전체 사진 | CC BY 4.0 | 직접 검토한 내려놓은 옷 61장 학습, 15장 평가 |
 
+**무늬 (pattern8)**
+
+| 데이터셋 | 라이선스 | 쓰임 |
+| --- | --- | --- |
+| [Fashionpedia](https://fashionpedia.github.io/home/) 무늬 속성 | 주석 CC BY 4.0 (사진은 원래 사이트 조건) | 옷 상자를 잘라 학습 21,085개, 시험 7,465개 |
+| [Clothing Dataset for Second-Hand Fashion v3](https://zenodo.org/records/13788681) | CC BY 4.0 | 내려놓은 옷 무늬. 학습 약 1만 장, 시험 1,959장(공식 test) |
+
 **옷 벡터**: [Marqo FashionSigLIP](https://huggingface.co/Marqo/marqo-fashionSigLIP)(Apache-2.0)을 그대로 씁니다(학습하지 않음). 옷장 쪽 보정 행렬(WCCN)은 비상업 데이터(DeepFashion)로 만들어 이 레포에 넣지 않습니다.
 
 **사전학습 가중치**: Ultralytics `yolo26n.pt` 등. Ultralytics 코드와 가중치는 **AGPL-3.0**입니다(상용 배포 시 라이선스 확인 필요).
@@ -425,10 +461,12 @@ CC BY 4.0 데이터로 학습한 모델이나 결과를 공개할 때는 위 출
 - [x] 색 조합 규칙을 AI Hub 코디 선호도 데이터로 검증([색 조합 규칙](docs/color-rules.md))
 - [x] 색 인식 학습(AI Hub K-Fashion, [color20](training/color-model/README.md))
 - [ ] 무늬 옷(체크·플로럴) 색 판단을 무늬 인식 결과로 약하게, 내려놓은 옷 색 보강
+- [ ] 무늬: 팀이 찍은 내려놓은 옷 사진과 K-Fashion(한국 옷) 라벨로 다시 확인, 도트·줄무늬 보강(320픽셀 재학습 후보), GPT에게 물어 쌓인 후보로 재학습
 - [ ] 뒷모습 입은 사진 시험
 - [ ] 실제 FashionSigLIP 모델로 이슈 #15 측정 스크립트와 벡터가 같은지 확인
 - 다른 레포: agent가 확인 단계에서 `outfit_color_check`를 부르기, 약속 문서(mcp-tools.md)에 도구 추가
 - 다른 레포: 옷장은 `embedding`을 pgvector에 저장(박창근 님, 이슈 #15). 약속 문서(mcp-tools.md)에 `embedding`·`embeddingModel` 추가 필요
+- 다른 레포: 약속 문서(mcp-tools.md)에 `pattern` 값 8종·`null`(모름)과 `patternCheckedBy` 추가 필요. agent가 무늬끼리 겹침, 무늬 옷 색 판단에 쓰는 건 agent 담당과 정함
 - 다른 레포: agent는 동의한 사용자에게만 `allowGpt=true`를 보내고 `checkedBy: gpt`는 약하게 말하기, 앱은 처음 쓸 때 동의 화면
 
 ## 브랜치와 비밀 값

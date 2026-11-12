@@ -4,6 +4,8 @@ import com.fashionagent.clothesstate.ClothesStateProperties;
 import com.fashionagent.clothesstate.color.ColorModel;
 import com.fashionagent.clothesstate.embed.EmbedProperties;
 import com.fashionagent.clothesstate.embed.OnnxGarmentEmbedder;
+import com.fashionagent.clothesstate.pattern.OnnxPatternClassifier;
+import com.fashionagent.clothesstate.pattern.PatternProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,6 +30,12 @@ public class DetectorConfig {
     @Bean(destroyMethod = "close")
     OnnxGarmentEmbedder garmentEmbedder(EmbedProperties props) {
         return new OnnxGarmentEmbedder(props);
+    }
+
+    /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. */
+    @Bean(destroyMethod = "close")
+    OnnxPatternClassifier patternClassifier(PatternProperties props, ResourceLoader loader) {
+        return new OnnxPatternClassifier(loader.getResource(props.model()), props);
     }
 
     /** 옷 색 인식 모델(K-Fashion 20색). 바꾸려면 환경 변수 CLOTHES_COLOR_MODEL, 끄려면 none. */

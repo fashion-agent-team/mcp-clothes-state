@@ -194,10 +194,13 @@ public class ClothesInspectService {
             if (piece != null && (patternedByModel(pattern, pats[i][1]) || guess != null || "gpt".equals(pats[i][1]))) {
                 sub = GarmentColor.secondColor(piece, m, color);
             }
-            // 색이 하나뿐인데 모델이 무늬(줄·체크·도트·호피·꽃·기타)라고 하면 믿지 않습니다. 2026-11-12: 모니터를 찍은 흰 티(화면 줄무늬)를
-            // "흰색·갈색 줄무늬", 청바지를 줄무늬·도트로 봄. 그래픽(작은 프린트)과 GPT가 본 무늬는 그대로 둡니다.
-            if (sub == null && patternedByModel(pattern, pats[i][1]) && !"graphic".equals(pattern)) {
-                log.info("무늬 {}를 버림: 옷 색이 한 가지만 보임 ({})", pattern, color.colorName());
+            // 색이 하나뿐인데 모델이 무늬(줄·체크·도트·호피·꽃·기타)를 0.9 미만으로 말하면 믿지 않습니다. 2026-11-12: 모니터를 찍은
+            // 흰 티(화면 줄무늬)를 "흰색·갈색 줄무늬", 청바지를 줄무늬·도트로 봄. 그래픽(작은 프린트)과 GPT가 본 무늬는 그대로.
+            // 기준 0.9: 무늬 시험 사진(test_sh·test_fp, 무늬별 최대 300장)에서 무지를 무늬라 한 비율 0.7→0.0%·4.3→3.3%,
+            // 맞힌 무늬는 체크 -1.7·줄 -2.5·꽃 -4.5%p만 "모름"으로. 늘 버리면(1.0) 체크 -14·줄 -11%p라 쓰지 않음.
+            if (sub == null && patternedByModel(pattern, pats[i][1]) && !"graphic".equals(pattern)
+                    && Double.parseDouble(pats[i][3]) < SINGLE_COLOR_PATTERN_SURE) {
+                log.info("무늬 {}({})를 버림: 옷 색이 한 가지만 보임 ({})", pattern, pats[i][3], color.colorName());
                 pattern = null;
                 guess = null;
             }
@@ -249,7 +252,7 @@ public class ClothesInspectService {
             try {
                 PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
                 out[i][2] = r.top();
-                out[i][3] = String.format("%.2f", r.confidence());
+                out[i][3] = String.format(java.util.Locale.ROOT, "%.2f", r.confidence());
                 if (r.pattern() != null) {
                     out[i] = new String[] {r.pattern(), "model", r.top(), out[i][3]};
                 } else {
@@ -305,6 +308,9 @@ public class ClothesInspectService {
         }
         return out;
     }
+
+    /** 두 번째 색이 없을 때 무늬를 믿는 모델 확률(위 주석 참고). */
+    static final double SINGLE_COLOR_PATTERN_SURE = 0.9;
 
     private static boolean patternedByModel(String pattern, String checkedBy) {
         return pattern != null && !"plain".equals(pattern) && "model".equals(checkedBy);

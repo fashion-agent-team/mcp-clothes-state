@@ -295,11 +295,12 @@ class ClothesInspectServiceTest {
     }
 
     @Test
-    @DisplayName("옷 색이 한 가지뿐인데 모델이 줄무늬라고 하면 버림(모니터 화면 줄·청바지 결), 두 색이면 두 번째 색과 함께")
+    @DisplayName("옷 색이 한 가지뿐인데 모델이 0.9 미만으로 줄무늬라고 하면 버림(모니터 화면 줄·청바지 결), 두 색이면 두 번째 색과 함께")
     void patternNeedsTwoColors() {
         pattern.ready = true;
         garments.ready = true;
         garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.60, 0.80));
+        pattern.confidence = 0.8;
         var plain = service.inspect(photo, "laid", null).garments().getFirst();
         assertThat(plain.pattern()).isNull();
         assertThat(plain.patternCheckedBy()).isNull();
@@ -308,6 +309,9 @@ class ClothesInspectServiceTest {
                 .garments().getFirst();
         assertThat(striped.pattern()).isEqualTo("stripe");
         assertThat(striped.subColorName()).isNotNull();
+        // 모델이 0.9 이상으로 확신하면 색이 하나여도 둠(시험 사진에서 맞힌 무늬를 덜 잃게)
+        pattern.confidence = 0.95;
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isEqualTo("stripe");
     }
 
     @Test

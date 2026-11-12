@@ -100,4 +100,47 @@ class GarmentColorTest {
         // 픽셀이 없으면(-1) 중간 밝기로
         assertThat(GarmentColor.fromModel(onehot("블루"), -1)).isEqualTo(new GarmentColor.Result("blue", "파랑", "mid"));
     }
+
+    /** 흰 바닥 위 체크 옷 박스: [base] 바탕에 [line] 색 굵은 선을 가로세로로. 선 사이에 섞인 중간색도 조금. */
+    private static BufferedImage check(Color base, Color line) {
+        BufferedImage img = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 200, 200);
+        g.setColor(base);
+        g.fillRect(20, 20, 160, 160);
+        Color mix = new Color((base.getRed() + line.getRed()) / 2, (base.getGreen() + line.getGreen()) / 2,
+                (base.getBlue() + line.getBlue()) / 2);
+        for (int i = 20; i < 180; i += 32) {
+            g.setColor(line);
+            g.fillRect(i, 20, 10, 160);
+            g.fillRect(20, i, 160, 10);
+            g.setColor(mix);
+            g.fillRect(i + 10, 20, 3, 160);
+        }
+        g.dispose();
+        return img;
+    }
+
+    @Test
+    @DisplayName("무늬 옷 두 번째 색: 네이비 바탕 베이지 체크 → 베이지, 회색 바탕 검정 호피 → 회색")
+    void secondColor() {
+        var navy = new GarmentColor.Result("black", "검정", "dark");
+        var sub = GarmentColor.secondColor(check(new Color(30, 35, 60), new Color(205, 185, 150)), "laid", navy);
+        assertThat(sub).isNotNull();
+        assertThat(sub.colorFamily()).isEqualTo("beige");
+        var leopard = GarmentColor.secondColor(check(new Color(160, 165, 160), new Color(20, 20, 20)), "laid", navy);
+        assertThat(leopard).isNotNull();
+        assertThat(leopard.colorFamily()).isEqualTo("gray");
+    }
+
+    @Test
+    @DisplayName("두 번째 색이 귀로 같은 색(검정 바탕 네이비 줄)이면 말하지 않음")
+    void secondColorSameToHear() {
+        var black = new GarmentColor.Result("black", "검정", "dark");
+        assertThat(GarmentColor.secondColor(check(new Color(15, 15, 15), new Color(25, 35, 80)), "laid", black)).isNull();
+        // 무지 옷(색 하나)도 null
+        assertThat(GarmentColor.secondColor(laid(Color.WHITE, new Color(200, 30, 35)), "laid",
+                new GarmentColor.Result("red", "빨강", "mid"))).isNull();
+    }
 }

@@ -186,10 +186,14 @@ public class ClothesInspectService {
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             s.id = "g" + (i + 1);
-            GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(crop(img, s.box), m);
+            BufferedImage piece = s.whole ? null : crop(img, s.box);
+            GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(piece, m);
+            GarmentColor.Result sub = piece != null && patterned(pats[i][0])
+                    ? GarmentColor.secondColor(piece, m, color) : null;
             GarmentKind k = s.kind;
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
-                    color.colorFamily(), color.tone(), pats[i][0], pats[i][1], k.material(), null, k.formality(), List.copyOf(s.defects),
+                    color.colorFamily(), color.tone(), sub == null ? null : sub.colorName(),
+                    sub == null ? null : sub.colorFamily(), pats[i][0], pats[i][1], k.material(), null, k.formality(), List.copyOf(s.defects),
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence, embed ? embed(img, s.box) : null));
         }
         long tEnd = System.nanoTime();
@@ -199,6 +203,12 @@ public class ClothesInspectService {
                 out.stream().mapToInt(g -> g.defects().size()).sum(), gptAsked, candidateCount,
                 ms(t0, tDecode), ms(tDecode, tGarments), ms(tGarments, tModel), ms(tModel, tDefects), ms(tDefects, tPatterns), ms(tPatterns, tEnd),
                 ms(t0, tEnd));
+        // 옷마다 무엇으로 봤는지(종류·색·무늬·확신도). 말이 틀렸을 때 서버가 틀렸는지 agent가 틀렸는지 가리려고(2026-11-12).
+        log.info("clothes_inspect garments {}", out.stream()
+                .map(g -> g.id() + "=" + g.category() + "/" + g.name() + "/" + g.colorName()
+                        + (g.subColorName() == null ? "" : "+" + g.subColorName()) + "/" + g.pattern()
+                        + "/" + g.position() + "/" + String.format("%.2f", g.confidence() == null ? 0.0 : g.confidence()))
+                .toList());
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
@@ -276,6 +286,11 @@ public class ClothesInspectService {
             pool.shutdownNow();
         }
         return out;
+    }
+
+    /** 색이 섞인 무늬(체크·줄무늬·호피·꽃·도트·그래픽·기타)면 두 번째 색도 찾습니다. */
+    private static boolean patterned(String pattern) {
+        return pattern != null && !"plain".equals(pattern);
     }
 
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */

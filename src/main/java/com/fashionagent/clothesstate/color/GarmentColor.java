@@ -128,6 +128,115 @@ public final class GarmentColor {
         return median(groups.get(0).stream().mapToInt(Integer::intValue).toArray());
     }
 
+    /**
+     * 무늬 옷의 두 번째 색. 옷 픽셀(laid는 박스 가장자리 바닥색을 뺀 픽셀, worn은 박스 가운데)을 k-평균으로 네 무리로 나눠,
+     * 옷 픽셀의 12% 이상인 무리 가운데 [main]과 다른 계열이고 대표색에서 가장 먼 무리의 색을 돌려줍니다. 없으면 null.
+     *
+     * <p>2026-11-12: 네이비·베이지 체크 셔츠를 "검정 셔츠", 회색 바탕 검정 호피 셔츠를 "검정 셔츠"라고 해서 넣었습니다.
+     * 색 인식 모델은 옷의 대표색 하나만 배워서(K-Fashion 색상 라벨), 섞인 색은 픽셀로 봅니다.
+     * 검정·네이비·차콜처럼 둘 다 어두운 색은 듣는 사람에게 같은 색처럼 들려서 다른 색으로 치지 않습니다.
+     */
+    public static Result secondColor(BufferedImage crop, String mode, Result main) {
+        int[] rgb = "worn".equals(mode) ? region(crop, 0.25, 0.2, 0.75, 0.7) : garmentPixels(crop);
+        if (rgb.length < 40 || main == null) {
+            return null;
+        }
+        List<int[]> groups = clusters(rgb, 4);
+        // 대표색에 해당하는 무리(없으면 가장 큰 무리)에서 가장 멀리 떨어진 색을 고릅니다. 모니터·그늘에서 찍으면 무늬 경계가
+        // 섞인 중간색 무리(회갈색 등)가 생기는데, 그보다 실제 무늬 색(체크의 베이지 선)이 대표색과 더 멀어서요.
+        int anchor = groups.get(0)[0];
+        for (int[] g : groups) {
+            if (sameToHear(main, name(g[0]))) {
+                anchor = g[0];
+                break;
+            }
+        }
+        Result best = null;
+        double bestD = -1;
+        for (int[] g : groups) {
+            if (g[1] < rgb.length * 0.12) {
+                continue;
+            }
+            Result r = name(g[0]);
+            double d = distance(g[0], anchor);
+            if (r.colorName() != null && !sameToHear(main, r) && d > bestD) {
+                best = r;
+                bestD = d;
+            }
+        }
+        return best;
+    }
+
+    /** 귀로 들었을 때 같은 색: 같은 계열이거나, 둘 다 어두운 무채색·네이비(검정·네이비·차콜·어두운 갈색)이거나, 흰색과 밝은 회색. */
+    static boolean sameToHear(Result a, Result b) {
+        if (a.colorFamily().equals(b.colorFamily())) {
+            return true;
+        }
+        if (darkNeutral(a) && darkNeutral(b)) {
+            return true;
+        }
+        java.util.Set<String> pale = java.util.Set.of("white", "gray");
+        return pale.contains(a.colorFamily()) && pale.contains(b.colorFamily())
+                && "light".equals(a.tone()) && "light".equals(b.tone());
+    }
+
+    private static boolean darkNeutral(Result r) {
+        return switch (r.colorFamily()) {
+            case "black", "navy" -> true;
+            case "gray", "brown" -> "dark".equals(r.tone());
+            default -> false;
+        };
+    }
+
+    /** 픽셀을 k-평균으로 [k]무리로 나눠 {무리 중간값 색, 픽셀 수}를 큰 무리부터. */
+    static List<int[]> clusters(int[] rgb, int k) {
+        double[][] c = new double[k][3];
+        int[] byLight = luminanceOrder(rgb);
+        for (int i = 0; i < k; i++) {
+            int p = byLight[(int) ((i + 0.5) * rgb.length / k)];
+            c[i] = new double[] {(p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF};
+        }
+        int[] label = new int[rgb.length];
+        for (int iter = 0; iter < 10; iter++) {
+            double[][] sum = new double[k][3];
+            int[] count = new int[k];
+            for (int i = 0; i < rgb.length; i++) {
+                int r = (rgb[i] >> 16) & 0xFF;
+                int g = (rgb[i] >> 8) & 0xFF;
+                int b = rgb[i] & 0xFF;
+                int best = 0;
+                double bestD = Double.MAX_VALUE;
+                for (int j = 0; j < k; j++) {
+                    double d = sq(r - c[j][0]) + sq(g - c[j][1]) + sq(b - c[j][2]);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = j;
+                    }
+                }
+                label[i] = best;
+                sum[best][0] += r;
+                sum[best][1] += g;
+                sum[best][2] += b;
+                count[best]++;
+            }
+            for (int j = 0; j < k; j++) {
+                if (count[j] > 0) {
+                    c[j] = new double[] {sum[j][0] / count[j], sum[j][1] / count[j], sum[j][2] / count[j]};
+                }
+            }
+        }
+        List<int[]> out = new ArrayList<>();
+        for (int j = 0; j < k; j++) {
+            final int jj = j;
+            int[] members = java.util.stream.IntStream.range(0, rgb.length).filter(i -> label[i] == jj).map(i -> rgb[i]).toArray();
+            if (members.length > 0) {
+                out.add(new int[] {median(members), members.length});
+            }
+        }
+        out.sort((a, b) -> b[1] - a[1]);
+        return out;
+    }
+
     /** 배경으로 볼 색: 둘레 띠의 절반 넘게 이 색과 비슷함. */
     private static boolean backdrop(int color, int[] ring) {
         if (ring.length == 0) {

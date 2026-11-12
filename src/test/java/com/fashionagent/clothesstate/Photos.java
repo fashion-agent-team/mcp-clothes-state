@@ -43,6 +43,18 @@ public final class Photos {
         return encode(img);
     }
 
+    /** 320×240 전체에 가로 줄무늬(두 색, 8px씩). 무늬 옷 대신. */
+    public static String stripes(Color a, Color b) {
+        BufferedImage img = new BufferedImage(320, 240, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        for (int y = 0; y < 240; y += 8) {
+            g.setColor((y / 8) % 2 == 0 ? a : b);
+            g.fillRect(0, y, 320, 8);
+        }
+        g.dispose();
+        return encode(img);
+    }
+
     private static String encode(BufferedImage img) {
         try (var out = new ByteArrayOutputStream()) {
             ImageIO.write(img, "jpg", out);

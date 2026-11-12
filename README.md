@@ -70,6 +70,7 @@
       "subColorFamily": "white",
       "pattern": "stripe",        // plain | stripe | check | floral | dot | graphic | animal | other, 모르면 null
       "patternCheckedBy": "model", // model | gpt(모델이 몰라서 GPT에게 물음) | null
+      "patternGuess": null,       // pattern이 null(모름)인데 모델 1등이 무늬면 그 무늬. "~무늬 같아요"로만
       "material": null,           // 니트·가디건만 "니트", 나머지 null
       "notes": null,
       "formality": "smart",       // 이름으로 분명한 것만, 나머지 unknown

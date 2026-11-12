@@ -188,12 +188,26 @@ public class ClothesInspectService {
             s.id = "g" + (i + 1);
             BufferedImage piece = s.whole ? null : crop(img, s.box);
             GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(piece, m);
-            GarmentColor.Result sub = piece != null && patterned(pats[i][0])
-                    ? GarmentColor.secondColor(piece, m, color) : null;
+            String pattern = pats[i][0];
+            String guess = patternGuess(pats[i]);
+            GarmentColor.Result sub = null;
+            if (piece != null && (patternedByModel(pattern, pats[i][1]) || guess != null || "gpt".equals(pats[i][1]))) {
+                sub = GarmentColor.secondColor(piece, m, color);
+            }
+            // 색이 하나뿐인데 모델이 무늬(줄·체크·도트·호피·꽃·기타)라고 하면 믿지 않습니다. 2026-11-12: 모니터를 찍은 흰 티(화면 줄무늬)를
+            // "흰색·갈색 줄무늬", 청바지를 줄무늬·도트로 봄. 그래픽(작은 프린트)과 GPT가 본 무늬는 그대로 둡니다.
+            if (sub == null && patternedByModel(pattern, pats[i][1]) && !"graphic".equals(pattern)) {
+                log.info("무늬 {}를 버림: 옷 색이 한 가지만 보임 ({})", pattern, color.colorName());
+                pattern = null;
+                guess = null;
+            }
+            if (sub == null && guess != null && !"graphic".equals(guess)) {
+                guess = null;
+            }
             GarmentKind k = s.kind;
             out.add(new InspectResult.Garment(s.id, k.category(), k.name(), color.colorName(),
                     color.colorFamily(), color.tone(), sub == null ? null : sub.colorName(),
-                    sub == null ? null : sub.colorFamily(), pats[i][0], pats[i][1], k.material(), null, k.formality(), List.copyOf(s.defects),
+                    sub == null ? null : sub.colorFamily(), pattern, pattern == null ? null : pats[i][1], guess, k.material(), null, k.formality(), List.copyOf(s.defects),
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence, embed ? embed(img, s.box) : null));
         }
         long tEnd = System.nanoTime();
@@ -207,6 +221,7 @@ public class ClothesInspectService {
         log.info("clothes_inspect garments {}", out.stream()
                 .map(g -> g.id() + "=" + g.category() + "/" + g.name() + "/" + g.colorName()
                         + (g.subColorName() == null ? "" : "+" + g.subColorName()) + "/" + g.pattern()
+                        + (g.patternGuess() == null ? "" : "(" + g.patternGuess() + "?)")
                         + "/" + g.position() + "/" + String.format("%.2f", g.confidence() == null ? 0.0 : g.confidence()))
                 .toList());
         var pending = topCandidate == null ? null
@@ -220,7 +235,7 @@ public class ClothesInspectService {
      * GPT에게 동시에 묻고, timeout 안에 답한 것만 채웁니다.
      */
     private String[][] patterns(BufferedImage img, List<Slot> slots, boolean askGpt) {
-        String[][] out = new String[slots.size()][2];
+        String[][] out = new String[slots.size()][4]; // {무늬, checkedBy, 모델 1등, 1등 확률}
         if (!patterns.ready()) {
             return out;
         }
@@ -233,8 +248,10 @@ public class ClothesInspectService {
             }
             try {
                 PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
+                out[i][2] = r.top();
+                out[i][3] = String.format("%.2f", r.confidence());
                 if (r.pattern() != null) {
-                    out[i] = new String[] {r.pattern(), "model"};
+                    out[i] = new String[] {r.pattern(), "model", r.top(), out[i][3]};
                 } else {
                     unsure.add(i);
                     unsureResults.add(r);
@@ -271,7 +288,8 @@ public class ClothesInspectService {
                     PatternVerifier.Answer a = futures.get(j).get(Math.max(0, deadline - System.nanoTime()),
                             java.util.concurrent.TimeUnit.NANOSECONDS);
                     if (a != null) {
-                        out[unsure.get(j)] = new String[] {a.pattern(), "gpt"};
+                        out[unsure.get(j)][0] = a.pattern();
+                        out[unsure.get(j)][1] = "gpt";
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -288,9 +306,19 @@ public class ClothesInspectService {
         return out;
     }
 
-    /** 색이 섞인 무늬(체크·줄무늬·호피·꽃·도트·그래픽·기타)면 두 번째 색도 찾습니다. */
-    private static boolean patterned(String pattern) {
-        return pattern != null && !"plain".equals(pattern);
+    private static boolean patternedByModel(String pattern, String checkedBy) {
+        return pattern != null && !"plain".equals(pattern) && "model".equals(checkedBy);
+    }
+
+    /**
+     * 무늬를 확실히 모를 때(pattern=null) 모델 1등이 무늬면 그 무늬. agent가 "호피 무늬 같아요"처럼 약하게 말하게.
+     * 1등이 무지이거나 확률이 0.35보다 낮으면 null.
+     */
+    private static String patternGuess(String[] p) {
+        if (p[0] != null || p[2] == null || "plain".equals(p[2]) || p[3] == null) {
+            return null;
+        }
+        return Double.parseDouble(p[3]) >= 0.35 ? p[2] : null;
     }
 
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */

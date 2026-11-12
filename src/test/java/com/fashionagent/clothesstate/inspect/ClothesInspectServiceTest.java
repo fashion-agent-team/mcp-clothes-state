@@ -274,6 +274,7 @@ class ClothesInspectServiceTest {
     @Test
     @DisplayName("무늬 모델이 있으면 옷마다 pattern, 신발은 null, modelVersion 뒤에 무늬 모델 이름")
     void patterns() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
         assertThat(service.inspect(photo, null, null).garments().getFirst().pattern()).isNull();
         pattern.ready = true;
         garments.ready = true;
@@ -294,8 +295,29 @@ class ClothesInspectServiceTest {
     }
 
     @Test
+    @DisplayName("옷 색이 한 가지뿐인데 모델이 0.9 미만으로 줄무늬라고 하면 버림(모니터 화면 줄·청바지 결), 두 색이면 두 번째 색과 함께")
+    void patternNeedsTwoColors() {
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.60, 0.80));
+        pattern.confidence = 0.8;
+        var plain = service.inspect(photo, "laid", null).garments().getFirst();
+        assertThat(plain.pattern()).isNull();
+        assertThat(plain.patternCheckedBy()).isNull();
+        assertThat(plain.subColorName()).isNull();
+        var striped = service.inspect(Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240)), "laid", null)
+                .garments().getFirst();
+        assertThat(striped.pattern()).isEqualTo("stripe");
+        assertThat(striped.subColorName()).isNotNull();
+        // 모델이 0.9 이상으로 확신하면 색이 하나여도 둠(시험 사진에서 맞힌 무늬를 덜 잃게)
+        pattern.confidence = 0.95;
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isEqualTo("stripe");
+    }
+
+    @Test
     @DisplayName("무늬 모름: 내려놓은 사진·동의했을 때만 옷 박스를 GPT에게 물어 patternCheckedBy=gpt")
     void patternGpt() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
         pattern.ready = true;
         pattern.answer = null; // 모델은 모름
         patternGpt.ready = true;

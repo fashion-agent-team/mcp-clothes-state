@@ -25,6 +25,13 @@
 | object_detection_dom v1 (Roboflow, shoe-detect) | https://universe.roboflow.com/shoe-detect/object_detection_dom/dataset/1 | CC BY 4.0 | fashion12d부터. 원본 158장 중 78장 학습(영수증·주소 보이는 사진, 확대·밑창 사진 뺌). 상자는 한 짝씩 다시 그림 |
 | Fashion-1K (Humanbased-AI, 예전 Codatta) | https://huggingface.co/datasets/Humanbased-AI/Fashion-1K | openrail, 이미지 출처 표기 없음 | **학습에 안 씀.** 내려놓은 신발 확인용으로만 48장 봄(브랜드 상품 사진 콜라주, 워터마크 있음) |
 
+## 옷 색 모델 (`color20_cnn.onnx`)
+
+| 데이터셋 | 출처 | 라이선스 | 쓰임 |
+|---|---|---|---|
+| K-Fashion 이미지 (AI Hub, 과학기술정보통신부·한국지능정보사회진흥원) | https://aihub.or.kr | AI Hub 이용 약관(데이터 재배포 금지, 결과물 공개 때 출처 표기) | Validation 사진 119,023장의 정답 상자 옷 171,538벌. 학습 128,142 / 검증 16,880 / 시험 25,626(사진 단위로 나눔). 과정은 [color-model/README.md](color-model/README.md) |
+| Second-Hand Fashion v3 시험 사진 | [training-log.md](../docs/training-log.md) fashion12c 데이터와 같음 | CC BY 4.0 | 학습 제외. 내려놓은 옷 45벌 색 눈 확인 |
+
 사전학습 가중치: Ultralytics `yolo26n.pt`, `yolo11n.pt`, `yolo11s.pt`, `yolo26s.pt`(검출), `yolo11n-pose.pt`(입은 사람 위치 안내). Ultralytics 코드와 가중치는 AGPL-3.0입니다(상용 배포 시 라이선스 확인 필요).
 
 ## 무늬 모델 (`yolo26n_pattern8.onnx`)

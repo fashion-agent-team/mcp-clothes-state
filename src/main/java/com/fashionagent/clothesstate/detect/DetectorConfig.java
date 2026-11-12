@@ -1,10 +1,12 @@
 package com.fashionagent.clothesstate.detect;
 
 import com.fashionagent.clothesstate.ClothesStateProperties;
+import com.fashionagent.clothesstate.color.ColorModel;
 import com.fashionagent.clothesstate.embed.EmbedProperties;
 import com.fashionagent.clothesstate.embed.OnnxGarmentEmbedder;
 import com.fashionagent.clothesstate.pattern.OnnxPatternClassifier;
 import com.fashionagent.clothesstate.pattern.PatternProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ResourceLoader;
@@ -34,5 +36,12 @@ public class DetectorConfig {
     @Bean(destroyMethod = "close")
     OnnxPatternClassifier patternClassifier(PatternProperties props, ResourceLoader loader) {
         return new OnnxPatternClassifier(loader.getResource(props.model()), props);
+    }
+
+    /** 옷 색 인식 모델(K-Fashion 20색). 바꾸려면 환경 변수 CLOTHES_COLOR_MODEL, 끄려면 none. */
+    @Bean(destroyMethod = "close")
+    ColorModel colorModel(@Value("${clothes.color-model:classpath:models/color20_cnn.onnx}") String path,
+            ResourceLoader loader) {
+        return new ColorModel(loader.getResource(path));
     }
 }

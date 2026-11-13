@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -100,6 +101,59 @@ public class ClothesInspectService {
         this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier);
     }
 
+    /** 모델을 동시에 돌릴 스레드(가상 스레드). ONNX 계산은 안쪽 스레드 풀이 하므로 여기선 기다리기만 합니다. */
+    private static final ExecutorService WORKERS = Executors.newVirtualThreadPerTaskExecutor();
+
+    private static <T> T join(CompletableFuture<T> f) {
+        try {
+            return f.join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof RuntimeException r) {
+                throw r;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 켜질 때 모델마다 한 번씩 돌려 둡니다(ONNX 첫 실행은 준비 때문에 느림). 2026-11-13 측정: 첫 사진 711ms, 그다음 250ms 안팎.
+     * 실패해도 서버는 그대로 켭니다(첫 사진만 조금 느림).
+     */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void warmUpOnStart() {
+        if (Boolean.parseBoolean(System.getenv().getOrDefault("CLOTHES_WARM_UP", "true"))) {
+            Thread.ofVirtual().name("model-warm-up").start(this::warmUp);
+        }
+    }
+
+    public void warmUp() {
+        long t0 = System.nanoTime();
+        BufferedImage img = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        java.util.Random r = new java.util.Random(7);
+        for (int y = 0; y < img.getHeight(); y++) {
+            for (int x = 0; x < img.getWidth(); x++) {
+                int g = 90 + r.nextInt(80);
+                img.setRGB(x, y, (g << 16) | ((g - 10) << 8) | (g - 20));
+            }
+        }
+        warm("얼룩", () -> detector.ready() ? detector.detect(img, 0.9) : null);
+        warm("옷 종류", () -> garments.ready() ? garments.detect(img, 0.9) : null);
+        warm("무늬", () -> patterns.ready() ? patterns.classify(img, 0.1, 0.1, 0.8, 0.8) : null);
+        warm("색", () -> colors != null && colors.ready() ? colors.probabilities(img.getSubimage(100, 100, 200, 200)) : null);
+        warm("벡터", () -> embedder.ready() ? embedder.embed(img, 0.1, 0.1, 0.8, 0.8) : null);
+        log.info("모델 데우기 끝 {}ms", ms(t0, System.nanoTime()));
+    }
+
+    private static void warm(String name, java.util.function.Supplier<?> run) {
+        long t = System.nanoTime();
+        try {
+            run.get();
+            log.info("모델 데우기 {} {}ms", name, ms(t, System.nanoTime()));
+        } catch (RuntimeException e) {
+            log.warn("모델 데우기 {} 실패(첫 사진만 느릴 수 있음): {}", name, e.toString());
+        }
+    }
+
     public InspectResult inspect(String imageBase64, String mode, String view) {
         return inspect(imageBase64, mode, view, null);
     }
@@ -133,6 +187,10 @@ public class ClothesInspectService {
             return new InspectResult(List.of(), null, "dark", "model", version, null, null);
         }
 
+        // 얼룩 모델은 옷 위치가 없어도 돌릴 수 있어서 옷 찾기(종류 모델 + 글 벡터)와 동시에 돌립니다(2026-11-13 응답 시간).
+        // ONNX 세션은 여러 스레드에서 같이 불러도 됩니다. 사진(img)은 읽기만 합니다.
+        CompletableFuture<List<Detection>> found = CompletableFuture.supplyAsync(
+                () -> detector.detect(img, props.askThreshold()), WORKERS);
         List<Slot> slots = findGarments(img, m);
         int textChanged = textCheck(img, slots, m);
         long tGarments = System.nanoTime();
@@ -143,7 +201,11 @@ public class ClothesInspectService {
         }
         // 1) tell 이상은 바로 결함, ask~tell은 애매한 것으로 모음
         List<Detection> unsure = new ArrayList<>();
-        for (Detection d : detector.detect(img, props.askThreshold())) {
+        // 무늬(모델 + 애매하면 GPT)는 얼룩 GPT 확인과 상관없어서 동시에 시작합니다. 둘 다 GPT를 부르면 예전엔 차례로 기다렸습니다.
+        boolean askPatternGpt = m.equals("laid") && Boolean.TRUE.equals(allowGpt);
+        CompletableFuture<String[][]> patternsLater = CompletableFuture.supplyAsync(
+                () -> patterns(img, slots, askPatternGpt), WORKERS);
+        for (Detection d : join(found)) {
             if (d.confidence() >= props.tellThreshold()) {
                 Slot s = owner(slots, d);
                 s.defects.add(new InspectResult.Defect(d.kind(), Where.of(relative(d, s.box), m, v), round(d.confidence()),
@@ -186,7 +248,7 @@ public class ClothesInspectService {
             }
         }
         long tDefects = System.nanoTime();
-        String[][] pats = patterns(img, slots, m.equals("laid") && Boolean.TRUE.equals(allowGpt));
+        String[][] pats = join(patternsLater);
         long tPatterns = System.nanoTime();
         boolean embed = embedder.ready();
         List<InspectResult.Garment> out = new ArrayList<>();

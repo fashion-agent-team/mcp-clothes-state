@@ -30,8 +30,17 @@ public final class ColorHarmony {
     public record Issue(String rule, String level, List<String> garmentIds, String swapGarmentId, String say) {
     }
 
-    /** verdict: good | ok | bad. speech: 사용자에게 읽어 줄 1~2문장. */
-    public record Result(String verdict, List<Issue> issues, String speech) {
+    /**
+     * verdict: good | ok | bad. speech: 사용자에게 읽어 줄 1~2문장.
+     * score: 어울림 점수 0~100(ColorScore). 몸에 걸친 옷 종류가 2가지 미만이면 null.
+     * 같은 종류 옷이 두 벌 이상이면(비교 중) outfits에 조합마다 점수가 있고, score·scheme·scoreReason은 가장 높은 조합 것입니다.
+     */
+    public record Result(String verdict, List<Issue> issues, String speech, Integer score, String scheme,
+            String scoreReason, List<ColorScore.Outfit> outfits) {
+
+        public Result(String verdict, List<Issue> issues, String speech) {
+            this(verdict, issues, speech, null, null, null, List.of());
+        }
     }
 
     static final Set<String> NEUTRAL = Set.of("black", "white", "gray", "navy", "beige", "brown", "khaki");
@@ -77,7 +86,11 @@ public final class ColorHarmony {
         List<Issue> judged = issues.stream().filter(i -> !"info".equals(i.level()) && !"tell".equals(i.level())).toList();
         List<Issue> told = issues.stream().filter(i -> "tell".equals(i.level())).toList();
         String verdict = judged.isEmpty() ? "good" : "bad".equals(judged.get(0).level()) ? "bad" : "ok";
-        return new Result(verdict, List.copyOf(issues), speech(judged, told, known, items, lighting));
+        List<ColorScore.Outfit> outfits = ColorScore.score(known, issues);
+        ColorScore.Outfit best = outfits.isEmpty() ? null : outfits.get(0);
+        return new Result(verdict, List.copyOf(issues), speech(judged, told, known, items, lighting),
+                best == null ? null : best.score(), best == null ? null : best.schemeName(),
+                best == null ? null : best.reason(), outfits);
     }
 
     // ---------------------------------------------------------------- 자리 규칙

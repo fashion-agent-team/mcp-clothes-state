@@ -58,7 +58,7 @@ public class ClothesTools {
     @Tool(name = "outfit_color_check", description = """
             같이 입을 옷들의 색 조합과, 오늘 자리(occasion)에 맞는 색인지 봅니다(규칙, 사진 없음). \
             clothes_inspect로 옷을 본 뒤 지금 사진의 옷과 앞서 본 옷(입기로 한 것)을 모두 넘기세요. \
-            verdict가 bad면 issues[0].swapGarmentId 옷을 다른 색으로 바꾸자고 하고, check면 "일부러 고르셨으면 괜찮아요"처럼 확인만 부탁합니다. \
+            score는 0~100 어울림 점수(색상환 규칙)이고 scoreReason이 까닭입니다. verdict가 bad면 issues[0].swapGarmentId 옷을 다른 색으로 바꾸자고 하고, check면 "일부러 고르셨으면 괜찮아요"처럼 확인만 부탁합니다. \
             speech는 그대로 읽어도 되는 1~2문장입니다. 같은 종류 옷이 두 벌이면(비교 중) 종류가 다른 옷끼리만 조합을 봅니다.""")
     public Object outfitColorCheck(
             @ToolParam(description = "같이 입을 옷 목록(clothes_inspect의 garments 그대로, 최대 10벌)") List<ColorGarment> garments,

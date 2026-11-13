@@ -37,7 +37,7 @@ class ClothesInspectServiceTest {
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
         var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
-                0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30);
+                0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
         service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
     }
     private final String photo = Photos.jpeg(new Color(200, 200, 200));
@@ -136,7 +136,7 @@ class ClothesInspectServiceTest {
                 "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
                 List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
-                0.3, 0.25, "", 30);
+                0.3, 0.25, "", 30, java.time.Duration.ofMillis(200));
         var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
         verifier.ready = true;
         // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
@@ -164,7 +164,7 @@ class ClothesInspectServiceTest {
     @DisplayName("학습 후보는 보관 기간(30일)이 지난 날짜 폴더를 지움")
     void prune() throws Exception {
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
-                0.3, 0.25, tmp.toString(), 30);
+                0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
         java.nio.file.Files.createDirectories(tmp.resolve("2026-10-01"));
         java.nio.file.Files.writeString(tmp.resolve("2026-10-01/a.json"), "{}");
         java.nio.file.Files.createDirectories(tmp.resolve("2026-11-01"));

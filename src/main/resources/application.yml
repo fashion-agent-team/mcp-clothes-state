@@ -54,6 +54,8 @@ clothes:
   gpt:
     api-key: ${OPENAI_API_KEY:}
     model: ${CLOTHES_GPT_MODEL:gpt-4.1-mini}
+    # 애매한 얼룩 하나를 GPT에게 기다리는 시간. 넘기면 모델 결과로 답함(2026-11-13 3초 → 1.5초, 사진 답이 느려서)
+    defect-timeout: ${CLOTHES_GPT_DEFECT_TIMEOUT:1500ms}
     # GPT가 결함이라고 한 조각만 저장(다시 학습할 후보). 비우면 저장 안 함
     candidate-dir: ${CLOTHES_CANDIDATE_DIR:data/train-candidates}
 

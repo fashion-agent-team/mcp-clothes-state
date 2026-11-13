@@ -307,8 +307,9 @@ class ClothesInspectServiceTest {
         assertThat(plain.subColorName()).isNull();
         var striped = service.inspect(Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240)), "laid", null)
                 .garments().getFirst();
-        // 두 색이어도 0.9 미만이면 무늬 이름은 대지 않고 "무늬 있는"(other)
-        assertThat(striped.pattern()).isEqualTo("other");
+        // 두 색이어도 0.9 미만이면 무늬 이름은 대지 않고 "무늬가 있는 것 같아요"(patternGuess=other)
+        assertThat(striped.pattern()).isNull();
+        assertThat(striped.patternGuess()).isEqualTo("other");
         assertThat(striped.subColorName()).isNotNull();
         // 모델이 0.9 이상으로 확신하면 색이 하나여도 둠(시험 사진에서 맞힌 무늬를 덜 잃게)
         pattern.confidence = 0.95;
@@ -316,7 +317,7 @@ class ClothesInspectServiceTest {
     }
 
     @Test
-    @DisplayName("무늬 이름이 덜 확실하면(0.9 미만) other로만, 동의했으면 GPT에게 물어 이름을 채움. 호피는 확신해도 GPT에게 다시 물음")
+    @DisplayName("무늬 이름이 덜 확실하면(0.9 미만) 모름+patternGuess=other, 동의했으면 GPT에게 물어 이름을 채움. 호피는 확신해도 GPT에게 다시 물음")
     void vaguePatternName() {
         String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
         pattern.ready = true;
@@ -324,8 +325,8 @@ class ClothesInspectServiceTest {
         garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
         pattern.confidence = 0.8;
         var g0 = service.inspect(photo, "laid", null, false).garments().getFirst();
-        assertThat(g0.pattern()).isEqualTo("other");
-        assertThat(g0.patternCheckedBy()).isEqualTo("model");
+        assertThat(g0.pattern()).isNull();
+        assertThat(g0.patternGuess()).isEqualTo("other");
         assertThat(patternGpt.calls).isZero();
         patternGpt.ready = true;
         patternGpt.answer = "stripe";

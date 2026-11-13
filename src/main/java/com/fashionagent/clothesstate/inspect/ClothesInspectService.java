@@ -270,8 +270,8 @@ public class ClothesInspectService {
                 out[i][2] = r.top();
                 out[i][3] = String.format(java.util.Locale.ROOT, "%.2f", r.confidence());
                 if (r.pattern() != null && vague(r)) {
-                    // 무늬는 있는데 어떤 무늬인지는 덜 확실함: 이름 대신 "무늬 있는"(other). 동의했으면 GPT에게도 물음.
-                    out[i] = new String[] {"other", "model", r.top(), out[i][3]};
+                    // 무늬는 있는데 어떤 무늬인지는 덜 확실함: 모름으로 두고 patternGuess=other("무늬가 있는 것 같아요").
+                    // 동의했으면 GPT에게 물어 이름을 채움. agent는 무늬를 모르는 옷이 있으면 GPT 동의를 물음(agent #39).
                     unsure.add(i);
                     unsureResults.add(r);
                 } else if (r.pattern() != null) {

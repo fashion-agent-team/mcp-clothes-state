@@ -307,11 +307,45 @@ class ClothesInspectServiceTest {
         assertThat(plain.subColorName()).isNull();
         var striped = service.inspect(Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240)), "laid", null)
                 .garments().getFirst();
-        assertThat(striped.pattern()).isEqualTo("stripe");
+        // 두 색이어도 0.9 미만이면 무늬 이름은 대지 않고 "무늬가 있는 것 같아요"(patternGuess=other)
+        assertThat(striped.pattern()).isNull();
+        assertThat(striped.patternGuess()).isEqualTo("other");
         assertThat(striped.subColorName()).isNotNull();
         // 모델이 0.9 이상으로 확신하면 색이 하나여도 둠(시험 사진에서 맞힌 무늬를 덜 잃게)
         pattern.confidence = 0.95;
         assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isEqualTo("stripe");
+    }
+
+    @Test
+    @DisplayName("무늬 이름이 덜 확실하면(0.9 미만) 모름+patternGuess=other, 동의했으면 GPT에게 물어 이름을 채움. 호피는 확신해도 GPT에게 다시 물음")
+    void vaguePatternName() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        pattern.confidence = 0.8;
+        var g0 = service.inspect(photo, "laid", null, false).garments().getFirst();
+        assertThat(g0.pattern()).isNull();
+        assertThat(g0.patternGuess()).isEqualTo("other");
+        assertThat(patternGpt.calls).isZero();
+        patternGpt.ready = true;
+        patternGpt.answer = "stripe";
+        var g1 = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g1.pattern()).isEqualTo("stripe");
+        assertThat(g1.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // 0.9 이상 줄무늬는 그대로, GPT에 묻지 않음
+        pattern.confidence = 0.95;
+        assertThat(service.inspect(photo, "laid", null, true).garments().getFirst().pattern()).isEqualTo("stripe");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // 호피는 0.95여도 동의했으면 GPT에게 다시 물음(GPT가 무지라고 하면 무지)
+        pattern.answer = "animal";
+        patternGpt.answer = "plain";
+        var a = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(a.pattern()).isEqualTo("plain");
+        assertThat(patternGpt.calls).isEqualTo(2);
+        // 동의 안 했으면 호피 그대로
+        assertThat(service.inspect(photo, "laid", null, false).garments().getFirst().pattern()).isEqualTo("animal");
     }
 
     @Test

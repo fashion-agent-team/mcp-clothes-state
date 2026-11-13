@@ -235,6 +235,14 @@ public class ClothesInspectService {
                         + (g.patternGuess() == null ? "" : "(" + g.patternGuess() + "?)")
                         + "/" + g.position() + "/" + String.format("%.2f", g.confidence() == null ? 0.0 : g.confidence()))
                 .toList());
+        // 무늬 모델 1등과 확률(무늬 기준을 실제 사진으로 다시 정하려고, 2026-11-13).
+        if (patterns.ready()) {
+            List<String> tops = new ArrayList<>();
+            for (int i = 0; i < out.size(); i++) {
+                tops.add(out.get(i).id() + "=" + pats[i][2] + "@" + pats[i][3] + (pats[i][1] == null ? "" : "/" + pats[i][1]));
+            }
+            log.info("clothes_inspect patterns {}", tops);
+        }
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
@@ -261,8 +269,17 @@ public class ClothesInspectService {
                 PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
                 out[i][2] = r.top();
                 out[i][3] = String.format(java.util.Locale.ROOT, "%.2f", r.confidence());
-                if (r.pattern() != null) {
+                if (r.pattern() != null && vague(r)) {
+                    // 무늬는 있는데 어떤 무늬인지는 덜 확실함: 이름 대신 "무늬 있는"(other). 동의했으면 GPT에게도 물음.
+                    out[i] = new String[] {"other", "model", r.top(), out[i][3]};
+                    unsure.add(i);
+                    unsureResults.add(r);
+                } else if (r.pattern() != null) {
                     out[i] = new String[] {r.pattern(), "model", r.top(), out[i][3]};
+                    if (recheckAnimal(r)) {
+                        unsure.add(i);
+                        unsureResults.add(r);
+                    }
                 } else {
                     unsure.add(i);
                     unsureResults.add(r);
@@ -320,6 +337,26 @@ public class ClothesInspectService {
     /** 두 번째 색이 없을 때 무늬를 믿는 모델 확률(위 주석 참고). */
     static final double SINGLE_COLOR_PATTERN_SURE = 0.9;
 
+    /**
+     * 무늬 이름(줄무늬·체크·호피 등)을 대는 모델 확률. 이보다 낮으면 "무늬 있는"(other)으로만 말합니다.
+     * 2026-11-13 정지원: 호피 옷을 "줄무늬"라고 단정 → 틀린 무늬 이름은 말하지 않기. 근거(무늬 시험 사진 9,424장, 무지 제외 1등 무늬의
+     * 이름이 맞은 비율): test_fp 0.7~0.8 41%, 0.8~0.9 52%, 0.9~0.95 62%, 0.95~ 83% / test_sh 74%, 78%, 94%, 97%.
+     */
+    static final double PATTERN_NAME_SURE = 0.9;
+
+    /**
+     * 모델 무늬 이름을 그대로 믿지 않을 때. 무늬(무지·other 아님)인데 확률이 {@link #PATTERN_NAME_SURE} 미만이거나, 호피(animal)이면
+     * 확률과 상관없이(시험 사진에서 1등 호피 42장 중 19장이 틀림, 12장은 무지). 호피는 확신이 높으면 이름은 두되 동의했으면 GPT에게도 물음.
+     */
+    private static boolean vague(PatternClassifier.Result r) {
+        String p = r.pattern();
+        return !"plain".equals(p) && !"other".equals(p) && r.confidence() < PATTERN_NAME_SURE;
+    }
+
+    private static boolean recheckAnimal(PatternClassifier.Result r) {
+        return "animal".equals(r.pattern()) && r.confidence() >= PATTERN_NAME_SURE;
+    }
+
     private static boolean patternedByModel(String pattern, String checkedBy) {
         return pattern != null && !"plain".equals(pattern) && "model".equals(checkedBy);
     }
@@ -332,7 +369,11 @@ public class ClothesInspectService {
         if (p[0] != null || p[2] == null || "plain".equals(p[2]) || p[3] == null) {
             return null;
         }
-        return Double.parseDouble(p[3]) >= 0.35 ? p[2] : null;
+        // 1등 무늬 이름은 대지 않고 "무늬 있는 것 같아요"만(2026-11-13, 위 PATTERN_NAME_SURE). 그래픽은 색 규칙 때문에 이름을 남김.
+        if (Double.parseDouble(p[3]) < 0.35) {
+            return null;
+        }
+        return "graphic".equals(p[2]) ? "graphic" : "other";
     }
 
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */

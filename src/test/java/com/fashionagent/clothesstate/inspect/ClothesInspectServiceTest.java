@@ -564,4 +564,16 @@ class ClothesInspectServiceTest {
         assertThat(new Color(piece.getRGB(piece.getWidth() / 2, piece.getHeight() - 3)).getRed()).isGreaterThan(200);
         assertThat(ClothesInspectService.wearCrop(img, new InspectResult.Box(0.2, 0.0, 0.6, 0.2), 0.25, 768)).isNull();
     }
+
+    @Test
+    @DisplayName("옷 실수: 모델과 GPT 결과를 합치고 같은 옷·같은 실수는 모델 것 하나, 둘 다 없으면 null")
+    void mergeWear() {
+        var m = List.of(new InspectResult.WearIssue("tag_out", "g1", "top", 0.9, "model"));
+        var g = List.of(new InspectResult.WearIssue("tag_out", "g1", "top", 0.8, "gpt"),
+                new InspectResult.WearIssue("inside_out", "g1", "top", 0.8, "gpt"));
+        assertThat(ClothesInspectService.mergeWear(m, g)).extracting(InspectResult.WearIssue::checkedBy)
+                .containsExactly("model", "gpt");
+        assertThat(ClothesInspectService.mergeWear(null, null)).isNull();
+        assertThat(ClothesInspectService.mergeWear(List.of(), null)).isEmpty();
+    }
 }

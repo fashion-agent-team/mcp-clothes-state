@@ -16,6 +16,7 @@ import com.fashionagent.clothesstate.pattern.PatternVerifier;
 import com.fashionagent.clothesstate.verify.CandidateStore;
 import com.fashionagent.clothesstate.verify.CropVerifier;
 import com.fashionagent.clothesstate.verify.GptCheckProperties;
+import com.fashionagent.clothesstate.wear.ModelWearChecker;
 import com.fashionagent.clothesstate.wear.WearCheckProperties;
 import com.fashionagent.clothesstate.wear.WearChecker;
 import java.awt.Graphics2D;
@@ -78,6 +79,8 @@ public class ClothesInspectService {
     private final PatternVerifier patternVerifier;
     private final WearChecker wear;
     private final WearCheckProperties wearProps;
+    /** 우리 옷 실수 모델(택·단추·뒤집힘). 없으면 null. 사진을 밖으로 안 보내 동의 없이도 돌림. */
+    private final ModelWearChecker wearModel;
     /** GPT 동시 요청 수(시험과 같게 4). */
     private final Semaphore gptSlots = new Semaphore(4);
 
@@ -88,7 +91,7 @@ public class ClothesInspectService {
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             ColorModel colors, PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear,
-            WearCheckProperties wearProps) {
+            WearCheckProperties wearProps, ModelWearChecker wearModel) {
         this.props = props;
         this.detector = detector;
         this.garments = garments;
@@ -101,6 +104,7 @@ public class ClothesInspectService {
         this.patternVerifier = patternVerifier;
         this.wear = wear;
         this.wearProps = wearProps;
+        this.wearModel = wearModel;
     }
 
     /** 색 인식 모델 없이(픽셀 규칙만). 시험용. */
@@ -108,14 +112,24 @@ public class ClothesInspectService {
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             PatternClassifier patterns, PatternVerifier patternVerifier) {
         this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, WearChecker.NONE,
-                DEFAULT_WEAR);
+                DEFAULT_WEAR, null);
     }
 
     /** 옷 실수 확인 시험용(색 인식 모델 없이). */
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps) {
-        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps);
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
+                null);
+    }
+
+    /** 우리 옷 실수 모델 시험용. */
+    public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
+            PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps,
+            ModelWearChecker wearModel) {
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
+                wearModel);
     }
 
     static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(6),
@@ -149,6 +163,10 @@ public class ClothesInspectService {
                 : props.modelVersion();
         if (patterns.ready()) {
             version += "+" + patterns.version();
+        }
+        boolean wearModelOn = "worn".equals(m) && wearModel != null && wearModel.ready();
+        if (wearModelOn) {
+            version += "+" + wearModel.version();
         }
         if (Images.meanLightness(img) < props.darkLightness()) {
             return new InspectResult(List.of(), null, "dark", "model", version, null, null);
@@ -244,7 +262,8 @@ public class ClothesInspectService {
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence,
                     !embed ? null : s.embedding != null ? s.embedding : embed(img, s.box)));
         }
-        List<InspectResult.WearIssue> wearIssues = wearJob == null ? null : wearJob.collect(slots);
+        List<InspectResult.WearIssue> gptIssues = wearJob == null ? null : wearJob.collect(slots);
+        List<InspectResult.WearIssue> wearIssues = mergeWear(wearModelOn ? modelWear(img, slots, v) : null, gptIssues);
         long tEnd = System.nanoTime();
         if (wearIssues != null) {
             log.info("clothes_inspect wear {} {}", v, wearIssues.stream()
@@ -363,6 +382,47 @@ public class ClothesInspectService {
             }
             return answered ? out : null;
         }
+    }
+
+    /** 우리 모델로 옷마다(신발·사진 전체 빼고, 위에서부터 maxGarments벌) 실수를 봅니다. 실패하면 그 옷만 건너뜀. */
+    private List<InspectResult.WearIssue> modelWear(BufferedImage img, List<Slot> slots, String view) {
+        List<InspectResult.WearIssue> out = new ArrayList<>();
+        int n = 0;
+        for (Slot s : slots) {
+            if (n >= wearProps.maxGarments()) {
+                break;
+            }
+            if (s.whole || "shoes".equals(s.kind.category())) {
+                continue;
+            }
+            n++;
+            try {
+                for (WearChecker.Issue i : wearModel.check(img, new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()},
+                        s.kind.category(), s.kind.name(), "back".equals(view) ? "back" : "front")) {
+                    out.add(new InspectResult.WearIssue(i.kind(), s.id, s.kind.category(), round(i.confidence()), "model"));
+                }
+            } catch (RuntimeException e) {
+                log.warn("옷 실수 모델 실패: {}", e.toString());
+            }
+        }
+        return out;
+    }
+
+    /** 모델과 GPT 결과를 합침(같은 옷·같은 실수는 모델 것 하나). 둘 다 확인 못 했으면 null. */
+    static List<InspectResult.WearIssue> mergeWear(List<InspectResult.WearIssue> model,
+            List<InspectResult.WearIssue> gpt) {
+        if (model == null && gpt == null) {
+            return null;
+        }
+        List<InspectResult.WearIssue> out = new ArrayList<>(model == null ? List.of() : model);
+        if (gpt != null) {
+            for (InspectResult.WearIssue g : gpt) {
+                if (out.stream().noneMatch(o -> o.kind().equals(g.kind()) && o.garmentId().equals(g.garmentId()))) {
+                    out.add(g);
+                }
+            }
+        }
+        return out;
     }
 
     /** 단추 어긋남은 단추가 있을 수 있는 옷(셔츠·가디건·자켓·코트·조끼·원피스·겉옷)에만. 티셔츠·니트·바지·치마는 버림. */

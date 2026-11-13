@@ -60,6 +60,9 @@ clothes:
   wear-check:
     enabled: ${CLOTHES_WEAR_CHECK:true}
     model: ${CLOTHES_WEAR_MODEL:}
+  # 입은 사진 옷 실수를 우리 모델로(택·단추·뒤집힘, 합성 데이터로 학습, training/wear). 사진을 밖으로 안 보내 동의 없이도 돌림
+  wear-model:
+    enabled: ${CLOTHES_WEAR_MODEL_ON:true}
 
 management:
   endpoints:

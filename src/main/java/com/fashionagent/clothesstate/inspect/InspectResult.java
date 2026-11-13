@@ -15,7 +15,23 @@ public record InspectResult(
         String modelVersion,
         PendingHelper pendingHelper,
         /** garments[].embedding을 만든 모델(예: marqo-fashionSigLIP). 벡터를 안 만들었으면 null. 옷장은 같은 값끼리만 비교. */
-        String embeddingModel) {
+        String embeddingModel,
+        /**
+         * 입은 사진(worn)에서 GPT가 본 옷 실수. allowGpt=true이고 키가 있을 때만 확인하고, 확인하지 않았으면 null,
+         * 확인했는데 없으면 빈 목록. kind: inside_out(뒤집어 입음), backwards(앞뒤 바뀜), buttons_misaligned(단추 어긋남),
+         * tag_out(택 튀어나옴). 사진 한 장만 보고 판단하니 "~인 것 같아요"로 말하고 손으로 확인해 보라고 할 것.
+         */
+        List<WearIssue> wearIssues) {
+
+    /** 하위 호환(옷 실수 확인 없음). */
+    public InspectResult(List<Garment> garments, String framing, String lighting, String source, String modelVersion,
+            PendingHelper pendingHelper, String embeddingModel) {
+        this(garments, framing, lighting, source, modelVersion, pendingHelper, embeddingModel, null);
+    }
+
+    /** garmentId는 garments[].id, checkedBy는 지금은 늘 gpt. */
+    public record WearIssue(String kind, String garmentId, String category, double confidence, String checkedBy) {
+    }
 
     public record Box(double x, double y, double w, double h) {
     }

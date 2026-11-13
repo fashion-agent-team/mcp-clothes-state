@@ -495,4 +495,73 @@ class ClothesInspectServiceTest {
         service.textCheck(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), slots, "laid");
         assertThat(slots.getFirst().kind.name()).isEqualTo("겉옷");
     }
+
+    private ClothesInspectService wearService(com.fashionagent.clothesstate.FakeWearChecker wear) {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30);
+        return new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder,
+                pattern, patternGpt, wear, ClothesInspectService.DEFAULT_WEAR);
+    }
+
+    @Test
+    @DisplayName("옷 실수: 입은 사진 + 동의일 때만 옷마다(신발 빼고) 묻고, 0.7 이상만 wearIssues로")
+    void wearIssues() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("tag_out", 0.9, "m"),
+                new com.fashionagent.clothesstate.wear.WearChecker.Issue("inside_out", 0.5, "m"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.9, 0.2, 0.2, 0.6, 0.4),
+                new Detection("pants", 0.9, 0.25, 0.55, 0.5, 0.4), new Detection("shoes", 0.9, 0.3, 0.92, 0.4, 0.08));
+        detector.next = List.of();
+        var s = wearService(wear);
+
+        InspectResult r = s.inspect(photo, "worn", "back", true);
+        assertThat(wear.asked).containsExactlyInAnyOrder("tshirt/back", "pants/back");
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::kind).containsExactly("tag_out", "tag_out");
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::garmentId).containsExactly("g1", "g2");
+        assertThat(r.wearIssues().getFirst().category()).isEqualTo("top");
+        assertThat(r.wearIssues().getFirst().checkedBy()).isEqualTo("gpt");
+
+        wear.asked.clear();
+        assertThat(s.inspect(photo, "worn", "front", false).wearIssues()).isNull();
+        assertThat(s.inspect(photo, "laid", null, true).wearIssues()).isNull();
+        assertThat(wear.asked).isEmpty();
+    }
+
+    @Test
+    @DisplayName("옷 실수: 단추 어긋남은 단추 있는 옷만, 답이 하나도 없으면 null(확인 못 함), 옷을 못 찾으면 안 보냄")
+    void wearIssueFilters() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("buttons_misaligned", 0.9, "m"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.9, 0.2, 0.3, 0.6, 0.3),
+                new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var s = wearService(wear);
+        assertThat(s.inspect(photo, "worn", "front", true).wearIssues())
+                .singleElement().satisfies(w -> assertThat(w.kind()).isEqualTo("buttons_misaligned"));
+
+        wear.answer = null;
+        assertThat(s.inspect(photo, "worn", "front", true).wearIssues()).isNull();
+
+        garments.next = List.of();
+        wear.asked.clear();
+        s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).isEmpty();
+    }
+
+    @Test
+    @DisplayName("옷 실수 조각: 사진 위쪽은 회색으로 가리고, 긴 변 768 이하, 다 가려지면 null")
+    void wearCrop() {
+        var img = new java.awt.image.BufferedImage(1000, 2000, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var g = img.createGraphics();
+        g.setColor(Color.RED);
+        g.fillRect(0, 0, 1000, 2000);
+        g.dispose();
+        var piece = ClothesInspectService.wearCrop(img, new InspectResult.Box(0.2, 0.2, 0.6, 0.5), 0.25, 768);
+        assertThat(Math.max(piece.getWidth(), piece.getHeight())).isLessThanOrEqualTo(768);
+        assertThat(new Color(piece.getRGB(piece.getWidth() / 2, 2))).isEqualTo(new Color(128, 128, 128));
+        assertThat(new Color(piece.getRGB(piece.getWidth() / 2, piece.getHeight() - 3)).getRed()).isGreaterThan(200);
+        assertThat(ClothesInspectService.wearCrop(img, new InspectResult.Box(0.2, 0.0, 0.6, 0.2), 0.25, 768)).isNull();
+    }
 }

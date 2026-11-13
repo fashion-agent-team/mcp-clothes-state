@@ -33,6 +33,16 @@ record GarmentKind(String category, String name, String formality, String materi
 
     static final GarmentKind OTHER = new GarmentKind("other", "옷", "unknown", null);
 
+    /** GPT에게 말할 영어 옷 이름(모델 클래스 이름). 모르면 garment. */
+    String english() {
+        for (var e : KINDS.entrySet()) {
+            if (e.getValue().equals(this)) {
+                return "outer_unsure".equals(e.getKey()) ? "jacket or coat" : e.getKey();
+            }
+        }
+        return "garment";
+    }
+
     static GarmentKind of(String modelClass) {
         return KINDS.getOrDefault(modelClass, OTHER);
     }

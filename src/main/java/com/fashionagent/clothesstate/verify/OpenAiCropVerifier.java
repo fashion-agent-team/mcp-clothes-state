@@ -110,7 +110,7 @@ public class OpenAiCropVerifier implements CropVerifier {
     }
 
     /** JPEG 품질 0.9(시험과 같게). */
-    static String jpegBase64(BufferedImage img) throws IOException {
+    public static String jpegBase64(BufferedImage img) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
         try (ImageOutputStream ios = ImageIO.createImageOutputStream(out)) {

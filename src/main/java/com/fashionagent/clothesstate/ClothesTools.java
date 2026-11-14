@@ -37,7 +37,9 @@ public class ClothesTools {
             부르세요. garments[].defects는 바로 알립니다(checkedBy가 gpt면 "~인 것 같아요"처럼 조금 약하게). \
             pendingHelper가 있으면 확인하지 못한 것이니 "확실하지 않은 부분이 있어요"라고만 말합니다. \
             where는 사용자가 "어디야?"라고 물을 때만 말합니다. \
-            lighting이 dark면 밝은 곳에서 다시 찍어 달라고 안내합니다.""")
+            lighting이 dark면 밝은 곳에서 다시 찍어 달라고 안내합니다. \
+            mode=worn이면 wearIssues(inside_out 뒤집어 입음, backwards 앞뒤 바뀜, buttons_misaligned 단추 어긋남, \
+            tag_out 택 튀어나옴)도 돌려줍니다(우리 모델로 늘 보고, allowGpt=true면 얼굴 쪽을 가린 옷 박스를 GPT에게도 물음). "~인 것 같아요"로 말하고 손으로 확인해 보라고 하세요.""")
     public Object clothesInspect(
             @ToolParam(description = "옷 사진 JPEG base64. 입은 사진도 좌우를 뒤집지 않고 원본 그대로. agent가 넣습니다.") String imageBase64,
             @ToolParam(required = false, description = "laid(내려놓은 옷을 위에서 찍음, 기본값) 또는 worn(옷을 입고 폰 앞에 섬)") String mode,

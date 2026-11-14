@@ -16,6 +16,9 @@ import com.fashionagent.clothesstate.pattern.PatternVerifier;
 import com.fashionagent.clothesstate.verify.CandidateStore;
 import com.fashionagent.clothesstate.verify.CropVerifier;
 import com.fashionagent.clothesstate.verify.GptCheckProperties;
+import com.fashionagent.clothesstate.wear.ModelWearChecker;
+import com.fashionagent.clothesstate.wear.WearCheckProperties;
+import com.fashionagent.clothesstate.wear.WearChecker;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -51,6 +54,9 @@ import org.springframework.stereotype.Service;
  * 확신이 낮으면 null(모름)이고, 신발은 학습하지 않아 null입니다. 모름이면 내려놓은 옷 사진이고 GPT를 쓸 수 있을 때만
  * 그 옷 박스를 GPT에게 물어 patternCheckedBy=gpt로 채우고, 그 그림과 GPT 답을 무늬 재학습 후보로 저장합니다(정지원 2026-11-11).
  * 입은 사진은 몸·얼굴이 들어가 보내지 않습니다.</li>
+ * <li>입은 사진이고 GPT를 쓸 수 있으면 옷마다(신발 빼고 위에서부터 3벌) 옷 박스를 GPT에게 보내 옷 실수(뒤집어 입음·앞뒤 바뀜·
+ * 단추 어긋남·택 튀어나옴)를 묻고 wearIssues로 돌려줍니다(정지원 2026-11-13). 얼굴이 들어갈 수 있는 사진 위쪽(앞 25%, 뒤 12%)은
+ * 회색으로 가린 뒤 보내고, 조각은 저장하지 않습니다. 얼룩 확인과 동시에 돌립니다.</li>
  * <li>벡터 모델이 있으면 옷마다 embedding(옷 박스 이미지 벡터, 옷장 같은 옷 판단용, 이슈 #15)을 붙입니다.</li>
  * </ul>
  */
@@ -72,6 +78,10 @@ public class ClothesInspectService {
     private final GarmentEmbedder embedder;
     private final PatternClassifier patterns;
     private final PatternVerifier patternVerifier;
+    private final WearChecker wear;
+    private final WearCheckProperties wearProps;
+    /** 우리 옷 실수 모델(택·단추·뒤집힘). 없으면 null. 사진을 밖으로 안 보내 동의 없이도 돌림. */
+    private final ModelWearChecker wearModel;
     /** GPT 동시 요청 수(시험과 같게 4). */
     private final Semaphore gptSlots = new Semaphore(4);
 
@@ -81,7 +91,8 @@ public class ClothesInspectService {
     @Autowired
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
-            ColorModel colors, PatternClassifier patterns, PatternVerifier patternVerifier) {
+            ColorModel colors, PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear,
+            WearCheckProperties wearProps, ModelWearChecker wearModel) {
         this.props = props;
         this.detector = detector;
         this.garments = garments;
@@ -92,14 +103,38 @@ public class ClothesInspectService {
         this.colors = colors;
         this.patterns = patterns;
         this.patternVerifier = patternVerifier;
+        this.wear = wear;
+        this.wearProps = wearProps;
+        this.wearModel = wearModel;
     }
 
     /** 색 인식 모델 없이(픽셀 규칙만). 시험용. */
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             PatternClassifier patterns, PatternVerifier patternVerifier) {
-        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier);
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, WearChecker.NONE,
+                DEFAULT_WEAR, null);
     }
+
+    /** 옷 실수 확인 시험용(색 인식 모델 없이). */
+    public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
+            PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps) {
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
+                null);
+    }
+
+    /** 우리 옷 실수 모델 시험용. */
+    public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
+            PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps,
+            ModelWearChecker wearModel) {
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
+                wearModel);
+    }
+
+    static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(3),
+            768, 0.7, 0.25, 0.12, 3);
 
     /** 모델을 동시에 돌릴 스레드(가상 스레드). ONNX 계산은 안쪽 스레드 풀이 하므로 여기선 기다리기만 합니다. */
     private static final ExecutorService WORKERS = Executors.newVirtualThreadPerTaskExecutor();
@@ -141,6 +176,9 @@ public class ClothesInspectService {
         warm("무늬", () -> patterns.ready() ? patterns.classify(img, 0.1, 0.1, 0.8, 0.8) : null);
         warm("색", () -> colors != null && colors.ready() ? colors.probabilities(img.getSubimage(100, 100, 200, 200)) : null);
         warm("벡터", () -> embedder.ready() ? embedder.embed(img, 0.1, 0.1, 0.8, 0.8) : null);
+        // 옷 실수 모델 3개(셔츠 앞이면 택·단추·뒤집힘 모두 돎)
+        warm("옷 실수", () -> wearModel != null && wearModel.ready()
+                ? wearModel.check(img, new double[] {0.2, 0.15, 0.6, 0.7}, "top", "셔츠", "front") : null);
         log.info("모델 데우기 끝 {}ms", ms(t0, System.nanoTime()));
     }
 
@@ -183,6 +221,10 @@ public class ClothesInspectService {
         if (patterns.ready()) {
             version += "+" + patterns.version();
         }
+        boolean wearModelOn = "worn".equals(m) && wearModel != null && wearModel.ready();
+        if (wearModelOn) {
+            version += "+" + wearModel.version();
+        }
         if (Images.meanLightness(img) < props.darkLightness()) {
             return new InspectResult(List.of(), null, "dark", "model", version, null, null);
         }
@@ -199,6 +241,8 @@ public class ClothesInspectService {
             log.info("clothes_inspect {}x{} {} garments=0 (글 벡터로 옷이 아니라고 봄)", img.getWidth(), img.getHeight(), m);
             return new InspectResult(List.of(), null, "ok", "model", version, null, null);
         }
+        // 0) 입은 사진이면 옷 실수 확인을 먼저 보내 두고(GPT, 동시에) 맨 끝에 모음
+        WearJob wearJob = startWear(img, slots, m, v, Boolean.TRUE.equals(allowGpt));
         // 1) tell 이상은 바로 결함, ask~tell은 애매한 것으로 모음
         List<Detection> unsure = new ArrayList<>();
         // 무늬(모델 + 애매하면 GPT)는 얼룩 GPT 확인과 상관없어서 동시에 시작합니다. 둘 다 GPT를 부르면 예전엔 차례로 기다렸습니다.
@@ -283,7 +327,13 @@ public class ClothesInspectService {
                     s.box, m.equals("laid") ? position(s.box) : null, s.confidence,
                     !embed ? null : s.embedding != null ? s.embedding : embed(img, s.box)));
         }
+        List<InspectResult.WearIssue> gptIssues = wearJob == null ? null : wearJob.collect(slots);
+        List<InspectResult.WearIssue> wearIssues = mergeWear(wearModelOn ? modelWear(img, slots, v) : null, gptIssues);
         long tEnd = System.nanoTime();
+        if (wearIssues != null) {
+            log.info("clothes_inspect wear {} {}", v, wearIssues.stream()
+                    .map(w -> w.garmentId() + "=" + w.kind() + "/" + String.format("%.2f", w.confidence())).toList());
+        }
         // 단계별 시간(ms). 사진 내용은 남기지 않고 크기와 개수만.
         log.info("clothes_inspect {}x{} {} garments={} textChanged={} defects={} gpt={} candidates={} | 풀기 {}ms, 옷 종류 {}ms, 얼룩 {}ms, GPT {}ms, 무늬 {}ms, 색·벡터·정리 {}ms, 전체 {}ms",
                 img.getWidth(), img.getHeight(), m, out.size(), textChanged,
@@ -308,7 +358,186 @@ public class ClothesInspectService {
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
-        return new InspectResult(out, null, "ok", "model", version, pending, embed ? embedder.version() : null);
+        return new InspectResult(out, null, "ok", "model", version, pending, embed ? embedder.version() : null,
+                wearIssues);
+    }
+
+    /**
+     * 입은 사진의 옷 박스마다 옷 실수 확인을 보냅니다(동시에). 입은 사진이 아니거나 동의·키가 없으면 null(확인 안 함).
+     * 옷을 하나도 못 찾아 사진 전체를 한 벌로 본 경우도 보내지 않습니다(얼굴이 다 들어감).
+     */
+    private WearJob startWear(BufferedImage img, List<Slot> slots, String mode, String view, boolean allowGpt) {
+        if (!"worn".equals(mode) || !allowGpt || !wearProps.enabled() || !wear.ready()) {
+            return null;
+        }
+        String side = "back".equals(view) ? "back" : "front";
+        double hideTop = "back".equals(side) ? wearProps.backHideTop() : wearProps.frontHideTop();
+        ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
+        List<Slot> asked = new ArrayList<>();
+        List<Future<List<WearChecker.Issue>>> futures = new ArrayList<>();
+        for (Slot s : slots) {
+            if (asked.size() >= wearProps.maxGarments()) {
+                break;
+            }
+            if (s.whole || "shoes".equals(s.kind.category())) {
+                continue;
+            }
+            BufferedImage piece = wearCrop(img, s.box, hideTop, wearProps.maxSide());
+            if (piece == null) {
+                continue; // 옷 박스가 다 가려지는 위쪽에 있음
+            }
+            String name = s.kind.english();
+            asked.add(s);
+            futures.add(pool.submit(() -> {
+                gptSlots.acquire();
+                try {
+                    return wear.check(piece, name, side);
+                } finally {
+                    gptSlots.release();
+                }
+            }));
+        }
+        if (asked.isEmpty()) {
+            pool.shutdownNow();
+            pool.close();
+            return null;
+        }
+        return new WearJob(pool, asked, futures, System.nanoTime() + wearProps.timeout().toNanos() + 500_000_000L);
+    }
+
+    /** 보내 둔 옷 실수 확인. collect는 한 번만 부릅니다. */
+    private final class WearJob {
+        final ExecutorService pool;
+        final List<Slot> asked;
+        final List<Future<List<WearChecker.Issue>>> futures;
+        final long deadline;
+
+        WearJob(ExecutorService pool, List<Slot> asked, List<Future<List<WearChecker.Issue>>> futures, long deadline) {
+            this.pool = pool;
+            this.asked = asked;
+            this.futures = futures;
+            this.deadline = deadline;
+        }
+
+        /** 기준(acceptConfidence) 이상만. 한 벌도 답을 못 받았으면 null(확인 못 함). */
+        List<InspectResult.WearIssue> collect(List<Slot> slots) {
+            List<InspectResult.WearIssue> out = new ArrayList<>();
+            boolean answered = false;
+            try {
+                for (int i = 0; i < futures.size(); i++) {
+                    Slot s = asked.get(i);
+                    try {
+                        List<WearChecker.Issue> issues = futures.get(i).get(Math.max(0, deadline - System.nanoTime()),
+                                java.util.concurrent.TimeUnit.NANOSECONDS);
+                        if (issues == null) {
+                            continue;
+                        }
+                        answered = true;
+                        for (WearChecker.Issue issue : issues) {
+                            if (issue.confidence() >= wearProps.acceptConfidence() && fits(issue.kind(), s.kind)) {
+                                out.add(new InspectResult.WearIssue(issue.kind(), s.id, s.kind.category(),
+                                        round(issue.confidence()), "gpt"));
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (java.util.concurrent.TimeoutException e) {
+                        futures.get(i).cancel(true);
+                        log.warn("GPT 옷 실수 확인 시간 넘김");
+                    } catch (java.util.concurrent.ExecutionException e) {
+                        log.warn("GPT 옷 실수 확인 실패: {}", e.getCause().getClass().getSimpleName());
+                    }
+                }
+            } finally {
+                pool.shutdownNow();
+                pool.close();
+            }
+            return answered ? out : null;
+        }
+    }
+
+    /** 우리 모델로 옷마다(신발·사진 전체 빼고, 위에서부터 maxGarments벌) 실수를 봅니다. 실패하면 그 옷만 건너뜀. */
+    private List<InspectResult.WearIssue> modelWear(BufferedImage img, List<Slot> slots, String view) {
+        List<InspectResult.WearIssue> out = new ArrayList<>();
+        int n = 0;
+        for (Slot s : slots) {
+            if (n >= wearProps.maxGarments()) {
+                break;
+            }
+            if (s.whole || "shoes".equals(s.kind.category())) {
+                continue;
+            }
+            n++;
+            try {
+                for (WearChecker.Issue i : wearModel.check(img, new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()},
+                        s.kind.category(), s.kind.name(), "back".equals(view) ? "back" : "front")) {
+                    out.add(new InspectResult.WearIssue(i.kind(), s.id, s.kind.category(), round(i.confidence()), "model"));
+                }
+            } catch (RuntimeException e) {
+                log.warn("옷 실수 모델 실패: {}", e.toString());
+            }
+        }
+        return out;
+    }
+
+    /** 모델과 GPT 결과를 합침(같은 옷·같은 실수는 모델 것 하나). 둘 다 확인 못 했으면 null. */
+    static List<InspectResult.WearIssue> mergeWear(List<InspectResult.WearIssue> model,
+            List<InspectResult.WearIssue> gpt) {
+        if (model == null && gpt == null) {
+            return null;
+        }
+        List<InspectResult.WearIssue> out = new ArrayList<>(model == null ? List.of() : model);
+        if (gpt != null) {
+            for (InspectResult.WearIssue g : gpt) {
+                if (out.stream().noneMatch(o -> o.kind().equals(g.kind()) && o.garmentId().equals(g.garmentId()))) {
+                    out.add(g);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 단추 어긋남은 단추가 있을 수 있는 옷(셔츠·가디건·자켓·코트·조끼·원피스·겉옷)에만. 티셔츠·니트·바지·치마는 버림. */
+    static boolean fits(String kind, GarmentKind k) {
+        if (!"buttons_misaligned".equals(kind)) {
+            return true;
+        }
+        return Set.of("셔츠", "가디건", "자켓", "코트", "조끼", "원피스", "겉옷", "상의", "아우터", "옷").contains(k.name());
+    }
+
+    /**
+     * 옷 박스를 조금(사방 5%) 넓혀 자르고, 사진 높이 hideTop보다 위쪽은 회색으로 칠한 뒤 긴 변을 maxSide 이하로 줄입니다.
+     * 박스가 전부 가려지면 null.
+     */
+    static BufferedImage wearCrop(BufferedImage img, InspectResult.Box b, double hideTop, int maxSide) {
+        int iw = img.getWidth();
+        int ih = img.getHeight();
+        double mx = b.w() * 0.05;
+        double my = b.h() * 0.05;
+        int x0 = clamp((int) Math.floor((b.x() - mx) * iw), 0, iw - 1);
+        int y0 = clamp((int) Math.floor((b.y() - my) * ih), 0, ih - 1);
+        int x1 = clamp((int) Math.ceil((b.x() + b.w() + mx) * iw), x0 + 1, iw);
+        int y1 = clamp((int) Math.ceil((b.y() + b.h() + my) * ih), y0 + 1, ih);
+        int hideY = (int) Math.ceil(hideTop * ih);
+        if (hideY >= y1 - 8) {
+            return null;
+        }
+        int w = x1 - x0;
+        int h = y1 - y0;
+        double scale = Math.min(1.0, (double) maxSide / Math.max(w, h));
+        int nw = Math.max(1, (int) Math.round(w * scale));
+        int nh = Math.max(1, (int) Math.round(h * scale));
+        BufferedImage out = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(img.getSubimage(x0, y0, w, h), 0, 0, nw, nh, null);
+        if (hideY > y0) {
+            g.setColor(new java.awt.Color(128, 128, 128));
+            g.fillRect(0, 0, nw, (int) Math.ceil((hideY - y0) * scale));
+        }
+        g.dispose();
+        return out;
     }
 
     /**

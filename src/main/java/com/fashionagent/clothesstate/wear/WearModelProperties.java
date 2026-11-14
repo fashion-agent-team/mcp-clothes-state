@@ -20,5 +20,6 @@ public record WearModelProperties(
         @DefaultValue("yolo26n-wear1") String version,
         @DefaultValue("0.8") double tagThreshold,
         @DefaultValue("0.8") double buttonThreshold,
-        @DefaultValue("0.8") double insideThreshold) {
+        /** 2차(in2) 합성 검증: 0.7에서 90.0% / 오탐 1.9%, 0.8에서 88.1% / 1.1%. */
+        @DefaultValue("0.7") double insideThreshold) {
 }

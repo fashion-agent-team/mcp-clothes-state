@@ -72,6 +72,36 @@ public class OnnxBinaryClassifier implements AutoCloseable {
         }
     }
 
+    /**
+     * 박스를 margin만큼 넓혀 잘라 긴 변 기준 정사각형 회색(114) 바탕 가운데에 놓고 "실수 있음" 확률. 가운데 자르기로
+     * 밑단·깃이 잘리지 않게(단추·뒤집힘 v2 학습과 같음).
+     */
+    public double probabilitySquare(BufferedImage img, double x, double y, double w, double h, double margin) {
+        return probability(square(img, x, y, w, h, margin), 0, 0, 1, 1, 0);
+    }
+
+    /** build_button_dataset.py crop()과 같은 자르기(int 내림)와 정사각형 채우기. */
+    static BufferedImage square(BufferedImage img, double x, double y, double w, double h, double margin) {
+        int iw = img.getWidth();
+        int ih = img.getHeight();
+        double bx = x * iw, by = y * ih, bw = w * iw, bh = h * ih;
+        int x0 = Math.max(0, (int) (bx - bw * margin));
+        int y0 = Math.max(0, (int) (by - bh * margin));
+        int x1 = Math.min(iw, (int) (bx + bw * (1 + margin)));
+        int y1 = Math.min(ih, (int) (by + bh * (1 + margin)));
+        int cw = Math.max(1, x1 - x0);
+        int ch = Math.max(1, y1 - y0);
+        int side = Math.max(cw, ch);
+        BufferedImage sq = new BufferedImage(side, side, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = sq.createGraphics();
+        g.setColor(new java.awt.Color(114, 114, 114));
+        g.fillRect(0, 0, side, side);
+        g.drawImage(img.getSubimage(x0, y0, Math.min(cw, iw - x0), Math.min(ch, ih - y0)), (side - cw) / 2,
+                (side - ch) / 2, null);
+        g.dispose();
+        return sq;
+    }
+
     @Override
     public void close() throws OrtException {
         if (session != null) {

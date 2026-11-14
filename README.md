@@ -124,7 +124,7 @@
   ```
 
   - `kind`: `inside_out`(뒤집어 입음), `backwards`(앞뒤 바뀜), `buttons_misaligned`(단추 어긋남, 셔츠·가디건·자켓·코트·조끼·원피스만), `tag_out`(택 튀어나옴).
-  - **우리 모델(`checkedBy: model`)**: 택·단추·뒤집힘 모델 세 개(YOLO26n-cls, Fashionpedia에 실수를 합성해 학습, [training-log](docs/training-log.md#입은-옷-실수-택단추뒤집힘-wear1-2026-11-13-claude))를 이 서버에서 돌립니다. 사진이 밖으로 안 나가서 `allowGpt`와 상관없이 입은 사진이면 늘 봅니다. 택은 뒷모습이면 `tag_out`, 앞모습(앞 목에 택)이면 `backwards`. 단추는 셔츠·가디건 앞모습만. 확률 0.8 이상만. 합성 검증 사진 기준 택 88%/오탐 0.6%, 단추 80%/1.3%, 뒤집힘 87%/1.4%이고 **실제 사진 평가는 아직**입니다. 끄려면 `CLOTHES_WEAR_MODEL_ON=false`.
+  - **우리 모델(`checkedBy: model`)**: 택·단추·뒤집힘 모델 세 개(YOLO26n-cls, Fashionpedia에 실수를 합성해 학습, [training-log](docs/training-log.md#입은-옷-실수-택단추뒤집힘-wear1-2026-11-13-claude))를 이 서버에서 돌립니다. 사진이 밖으로 안 나가서 `allowGpt`와 상관없이 입은 사진이면 늘 봅니다. 택은 뒷모습이면 `tag_out`, 앞모습(앞 목에 택)이면 `backwards`. 단추는 셔츠·가디건 앞모습만. 확률 0.8 이상만(뒤집힘은 0.7). 2차 합성 검증 사진 기준 택 90.9%/오탐 0.6%, 단추 93.7%/1.2%, 뒤집힘 90.0%/1.9%이고 **실제 사진 평가는 아직**입니다. 끄려면 `CLOTHES_WEAR_MODEL_ON=false`.
   - **GPT(`checkedBy: gpt`)**: 동의했을 때만. 옷마다(신발 빼고 위에서부터 최대 3벌) 옷 박스를 사방 5% 넓혀 자르고, **얼굴이 들어갈 수 있는 사진 위쪽(앞모습 25%, 뒷모습 12%)은 회색으로 칠한 뒤** 긴 변 768px로 줄여 GPT에게 보냅니다. 조각은 저장하지 않습니다. 옷을 못 찾아 사진 전체를 한 벌로 본 경우는 보내지 않습니다.
   - GPT 확신도 0.7 이상만 넣습니다. 사진 한 장 판단이라 agent는 "~인 것 같아요"로 말하고 손으로 확인해 보라고 합니다.
   - 얼룩 GPT 확인과 동시에 보내고 6초(`clothes.wear-check.timeout`)까지 기다립니다. 끄려면 `CLOTHES_WEAR_CHECK=false`, 모델만 바꾸려면 `CLOTHES_WEAR_MODEL`(비우면 `CLOTHES_GPT_MODEL`).

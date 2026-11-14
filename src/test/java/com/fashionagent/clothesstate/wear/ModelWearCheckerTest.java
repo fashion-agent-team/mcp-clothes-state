@@ -29,6 +29,11 @@ class ModelWearCheckerTest {
             last = new double[] {x, y, w, h, margin};
             return p;
         }
+
+        @Override
+        public double probabilitySquare(BufferedImage img, double x, double y, double w, double h, double margin) {
+            return probability(img, x, y, w, h, margin);
+        }
     }
 
     private static final WearModelProperties PROPS = new WearModelProperties(true, "a", "b", "c", "wear1", 0.8, 0.8, 0.8);
@@ -84,5 +89,20 @@ class ModelWearCheckerTest {
         assertThat(c.ready()).isTrue();
         var white = new BufferedImage(400, 600, BufferedImage.TYPE_INT_RGB);
         assertThat(c.check(white, new double[] {0.1, 0.1, 0.8, 0.6}, "top", "셔츠", "front")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("정사각형 채우기: 세로로 긴 박스는 좌우에 회색, 옷은 가운데 그대로")
+    void square() {
+        var img = new BufferedImage(100, 200, BufferedImage.TYPE_INT_RGB);
+        var g = img.createGraphics();
+        g.setColor(java.awt.Color.RED);
+        g.fillRect(0, 0, 100, 200);
+        g.dispose();
+        var sq = OnnxBinaryClassifier.square(img, 0.25, 0.25, 0.5, 0.5, 0);
+        assertThat(sq.getWidth()).isEqualTo(100);
+        assertThat(sq.getHeight()).isEqualTo(100);
+        assertThat(new java.awt.Color(sq.getRGB(5, 50))).isEqualTo(new java.awt.Color(114, 114, 114));
+        assertThat(new java.awt.Color(sq.getRGB(50, 50))).isEqualTo(java.awt.Color.RED);
     }
 }

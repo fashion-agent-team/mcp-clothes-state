@@ -74,13 +74,13 @@ public class ModelWearChecker implements AutoCloseable {
             }
         }
         if (ok(button) && !back && BUTTONED.contains(name)) {
-            double p = button.probability(img, x, y, w, h, 0.05);
+            double p = button.probabilitySquare(img, x, y, w, h, 0.05);
             if (p >= props.buttonThreshold()) {
                 out.add(new WearChecker.Issue("buttons_misaligned", p, props.version()));
             }
         }
         if (ok(inside) && INSIDE.contains(name)) {
-            double p = inside.probability(img, x, y, w, h, 0.05);
+            double p = inside.probabilitySquare(img, x, y, w, h, 0.05);
             if (p >= props.insideThreshold()) {
                 out.add(new WearChecker.Issue("inside_out", p, props.version()));
             }

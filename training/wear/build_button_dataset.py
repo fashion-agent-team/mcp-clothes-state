@@ -56,10 +56,15 @@ def shift_half(img, m, box, rng, vertical=True):
 
 
 def crop(img, box):
+    """옷 박스를 사방 5% 넓혀 자르고, 긴 변 기준 정사각형 회색(114) 바탕 가운데에 놓음(밑단·깃이 잘리지 않게, v2)."""
     x, y, w, h = box
     b = (int(x - w * 0.05), int(y - h * 0.05), int(x + w * 1.05), int(y + h * 1.05))
     b = (max(0, b[0]), max(0, b[1]), min(img.width, b[2]), min(img.height, b[3]))
-    return img.crop(b)
+    c = img.crop(b)
+    side = max(c.width, c.height)
+    sq = Image.new('RGB', (side, side), (114, 114, 114))
+    sq.paste(c, ((side - c.width) // 2, (side - c.height) // 2))
+    return sq
 
 
 def main():
@@ -91,10 +96,12 @@ def main():
         if m.sum() < 5000:
             continue
         split = 'val' if a['image_id'] % 10 == 0 else 'train'
-        ok = img if rng.random() < 0.5 else shift_half(img, m, a['bbox'], rng, vertical=False)
-        for cls, src in (('ok', ok), ('shifted', shift_half(img, m, a['bbox'], rng))):
+        # v2: 한 벌에서 두 쌍(원본·옆으로만 민 것 / 서로 다른 쪽·높이로 내린 것 둘)
+        pairs = [('ok', img, 'a'), ('ok', shift_half(img, m, a['bbox'], rng, vertical=False), 'b'),
+                 ('shifted', shift_half(img, m, a['bbox'], rng), 'a'), ('shifted', shift_half(img, m, a['bbox'], rng), 'b')]
+        for cls, src, tag in pairs:
             os.makedirs(os.path.join(out_dir, split, cls), exist_ok=True)
-            crop(src, a['bbox']).save(os.path.join(out_dir, split, cls, f"{a['id']}.jpg"), quality=rng.randint(60, 95))
+            crop(src, a['bbox']).save(os.path.join(out_dir, split, cls, f"{a['id']}{tag}.jpg"), quality=rng.randint(60, 95))
         n += 1
         if n % 500 == 0:
             print(n, flush=True)

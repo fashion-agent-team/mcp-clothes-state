@@ -179,14 +179,16 @@ def main():
             continue
         can_tag = any(
             TAG_NECKS & set(a.get('attribute_ids', [])) for a in necks + [top])
-        for cls in (('none', 'tag') if can_tag else ('none',)):
+        # v2: 택을 붙일 수 있는 사진은 택 두 가지(위치·모양 다르게), 아니면 원본만
+        jobs = [('none', 'a')] + ([('tag', 'a'), ('tag', 'b')] if can_tag else [])
+        for cls, suffix in jobs:
             src = img.copy()
             if cls == 'tag':
                 src = paste_tag(src, neck, rng)
             c, _ = neck_crop(src, top['bbox'])
             q = rng.randint(55, 95)
             os.makedirs(os.path.join(out_dir, split, cls), exist_ok=True)
-            c.save(os.path.join(out_dir, split, cls, f'{iid}.jpg'), quality=q)
+            c.save(os.path.join(out_dir, split, cls, f'{iid}{suffix}.jpg'), quality=q)
         n += 1
         if n % 500 == 0:
             print(n, flush=True)

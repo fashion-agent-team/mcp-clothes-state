@@ -35,7 +35,13 @@ public record GptCheckProperties(
          */
         @DefaultValue("data/train-candidates") String candidateDir,
         /** 학습 후보를 이 날수만큼만 보관하고 지난 날짜 폴더는 지움. */
-        @DefaultValue("30") int retentionDays) {
+        @DefaultValue("30") int retentionDays,
+        /**
+         * 애매한 얼룩 조각 하나를 GPT에게 묻고 기다리는 최대 시간. 넘기면 지금처럼 모델 결과(fallbackAskThreshold 0.3 이상은
+         * pendingHelper)로 답합니다. 무늬 확인은 {@link #timeout}(3초) 그대로.
+         * 2026-11-13: 사진 한 장 답이 6~12초라 3초 → 1.5초. 젯슨 로그의 GPT 단계 6건 0.88~2.64초 중 1.5초를 넘은 것은 1건.
+         */
+        @DefaultValue("1500ms") Duration defectTimeout) {
 
     public boolean enabled() {
         return apiKey != null && !apiKey.isBlank();

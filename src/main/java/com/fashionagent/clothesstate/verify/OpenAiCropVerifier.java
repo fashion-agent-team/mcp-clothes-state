@@ -42,7 +42,7 @@ public class OpenAiCropVerifier implements CropVerifier {
 
     public OpenAiCropVerifier(GptCheckProperties props) {
         this.props = props;
-        this.http = HttpClient.newBuilder().connectTimeout(props.timeout()).build();
+        this.http = HttpClient.newBuilder().connectTimeout(props.defectTimeout()).build();
     }
 
     @Override
@@ -58,12 +58,12 @@ public class OpenAiCropVerifier implements CropVerifier {
         try {
             String body = json.writeValueAsString(request(jpegBase64(crop)));
             HttpRequest req = HttpRequest.newBuilder(URI.create(props.baseUrl() + "/chat/completions"))
-                    .timeout(props.timeout())
+                    .timeout(props.defectTimeout())
                     .header("Authorization", "Bearer " + props.apiKey())
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
-            // 다시 보내지 않음: 기다리는 시간을 timeout(3초) 안으로 묶으려고. 실패하면 확인하지 못한 후보로 둡니다.
+            // 다시 보내지 않음: 기다리는 시간을 defectTimeout(1.5초) 안으로 묶으려고. 실패하면 확인하지 못한 후보로 둡니다.
             HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
             Verdict v = res.statusCode() == 200 ? parse(res.body(), props.model()) : null;
             if (v == null) {

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class OpenAiCropVerifierTest {
 
     private final OpenAiCropVerifier v = new OpenAiCropVerifier(new GptCheckProperties("", "gpt-4.1-mini",
-            "http://localhost", Duration.ofSeconds(1), 0.3, 512, 64, 0, 0.3, 0.25, "", 30));
+            "http://localhost", Duration.ofSeconds(1), 0.3, 512, 64, 0, 0.3, 0.25, "", 30, Duration.ofSeconds(1)));
 
     @Test
     @DisplayName("키가 없으면 준비 안 됨, 아무것도 보내지 않음")

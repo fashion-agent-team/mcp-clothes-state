@@ -486,8 +486,8 @@ public class ClothesInspectService {
                     }
                 }));
             }
-            // 전체를 timeout 한 번(+조금) 안에 끝냄. 늦은 것은 확인하지 못한 후보로 둡니다.
-            long deadline = System.nanoTime() + gpt.timeout().toNanos() + 500_000_000L;
+            // 전체를 defectTimeout 한 번(+조금) 안에 끝냄. 늦은 것은 확인하지 못한 후보로 둡니다.
+            long deadline = System.nanoTime() + gpt.defectTimeout().toNanos() + 200_000_000L;
             for (int i = 0; i < futures.size(); i++) {
                 Future<CropVerifier.Verdict> f = futures.get(i);
                 if (f == null) {

@@ -15,8 +15,11 @@ public record WearCheckProperties(
         @DefaultValue("true") boolean enabled,
         /** 비우면 clothes.gpt.model(gpt-4.1-mini). */
         @DefaultValue("") String model,
-        /** GPT 한 번에 기다리는 최대 시간. 큰 조각을 보내 얼룩 확인(3초)보다 길게. agent는 MCP를 20초 기다림. */
-        @DefaultValue("6s") Duration timeout,
+        /**
+         * GPT 한 번에 기다리는 최대 시간. 2026-11-14: 사진 한 장 응답을 줄이려고(얼룩 1.5초 결정) 6초 → 3초(무늬 확인과 같음).
+         * 우리 모델 결과는 GPT를 기다리지 않고 늘 나옴.
+         */
+        @DefaultValue("3s") Duration timeout,
         /** 보내는 옷 조각 긴 변 최대 픽셀(단추·택이 보이게 얼룩 조각 512보다 크게). */
         @DefaultValue("768") int maxSide,
         /** GPT 확신도가 이 이상일 때만 실수로 말함. 틀리게 말하면 다시 갈아입게 되니 높게. */

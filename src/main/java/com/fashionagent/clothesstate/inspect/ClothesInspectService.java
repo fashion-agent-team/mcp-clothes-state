@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -132,8 +133,64 @@ public class ClothesInspectService {
                 wearModel);
     }
 
-    static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(6),
+    static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(3),
             768, 0.7, 0.25, 0.12, 3);
+
+    /** 모델을 동시에 돌릴 스레드(가상 스레드). ONNX 계산은 안쪽 스레드 풀이 하므로 여기선 기다리기만 합니다. */
+    private static final ExecutorService WORKERS = Executors.newVirtualThreadPerTaskExecutor();
+
+    private static <T> T join(CompletableFuture<T> f) {
+        try {
+            return f.join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof RuntimeException r) {
+                throw r;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 켜질 때 모델마다 한 번씩 돌려 둡니다(ONNX 첫 실행은 준비 때문에 느림). 2026-11-13 측정: 첫 사진 711ms, 그다음 250ms 안팎.
+     * 실패해도 서버는 그대로 켭니다(첫 사진만 조금 느림).
+     */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void warmUpOnStart() {
+        if (Boolean.parseBoolean(System.getenv().getOrDefault("CLOTHES_WARM_UP", "true"))) {
+            Thread.ofVirtual().name("model-warm-up").start(this::warmUp);
+        }
+    }
+
+    public void warmUp() {
+        long t0 = System.nanoTime();
+        BufferedImage img = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        java.util.Random r = new java.util.Random(7);
+        for (int y = 0; y < img.getHeight(); y++) {
+            for (int x = 0; x < img.getWidth(); x++) {
+                int g = 90 + r.nextInt(80);
+                img.setRGB(x, y, (g << 16) | ((g - 10) << 8) | (g - 20));
+            }
+        }
+        warm("얼룩", () -> detector.ready() ? detector.detect(img, 0.9) : null);
+        warm("옷 종류", () -> garments.ready() ? garments.detect(img, 0.9) : null);
+        warm("무늬", () -> patterns.ready() ? patterns.classify(img, 0.1, 0.1, 0.8, 0.8) : null);
+        warm("색", () -> colors != null && colors.ready() ? colors.probabilities(img.getSubimage(100, 100, 200, 200)) : null);
+        warm("벡터", () -> embedder.ready() ? embedder.embed(img, 0.1, 0.1, 0.8, 0.8) : null);
+        // 옷 실수 모델 3개(셔츠 앞이면 택·단추·뒤집힘 모두 돎)
+        warm("옷 실수", () -> wearModel != null && wearModel.ready()
+                ? wearModel.check(img, new double[] {0.2, 0.15, 0.6, 0.7}, "top", "셔츠", "front") : null);
+        log.info("모델 데우기 끝 {}ms", ms(t0, System.nanoTime()));
+    }
+
+    private static void warm(String name, java.util.function.Supplier<?> run) {
+        long t = System.nanoTime();
+        try {
+            run.get();
+            log.info("모델 데우기 {} {}ms", name, ms(t, System.nanoTime()));
+        } catch (RuntimeException e) {
+            log.warn("모델 데우기 {} 실패(첫 사진만 느릴 수 있음): {}", name, e.toString());
+        }
+    }
 
     public InspectResult inspect(String imageBase64, String mode, String view) {
         return inspect(imageBase64, mode, view, null);
@@ -172,6 +229,10 @@ public class ClothesInspectService {
             return new InspectResult(List.of(), null, "dark", "model", version, null, null);
         }
 
+        // 얼룩 모델은 옷 위치가 없어도 돌릴 수 있어서 옷 찾기(종류 모델 + 글 벡터)와 동시에 돌립니다(2026-11-13 응답 시간).
+        // ONNX 세션은 여러 스레드에서 같이 불러도 됩니다. 사진(img)은 읽기만 합니다.
+        CompletableFuture<List<Detection>> found = CompletableFuture.supplyAsync(
+                () -> detector.detect(img, props.askThreshold()), WORKERS);
         List<Slot> slots = findGarments(img, m);
         int textChanged = textCheck(img, slots, m);
         long tGarments = System.nanoTime();
@@ -184,7 +245,11 @@ public class ClothesInspectService {
         WearJob wearJob = startWear(img, slots, m, v, Boolean.TRUE.equals(allowGpt));
         // 1) tell 이상은 바로 결함, ask~tell은 애매한 것으로 모음
         List<Detection> unsure = new ArrayList<>();
-        for (Detection d : detector.detect(img, props.askThreshold())) {
+        // 무늬(모델 + 애매하면 GPT)는 얼룩 GPT 확인과 상관없어서 동시에 시작합니다. 둘 다 GPT를 부르면 예전엔 차례로 기다렸습니다.
+        boolean askPatternGpt = m.equals("laid") && Boolean.TRUE.equals(allowGpt);
+        CompletableFuture<String[][]> patternsLater = CompletableFuture.supplyAsync(
+                () -> patterns(img, slots, askPatternGpt), WORKERS);
+        for (Detection d : join(found)) {
             if (d.confidence() >= props.tellThreshold()) {
                 Slot s = owner(slots, d);
                 s.defects.add(new InspectResult.Defect(d.kind(), Where.of(relative(d, s.box), m, v), round(d.confidence()),
@@ -227,7 +292,7 @@ public class ClothesInspectService {
             }
         }
         long tDefects = System.nanoTime();
-        String[][] pats = patterns(img, slots, m.equals("laid") && Boolean.TRUE.equals(allowGpt));
+        String[][] pats = join(patternsLater);
         long tPatterns = System.nanoTime();
         boolean embed = embedder.ready();
         List<InspectResult.Garment> out = new ArrayList<>();
@@ -282,6 +347,14 @@ public class ClothesInspectService {
                         + (g.patternGuess() == null ? "" : "(" + g.patternGuess() + "?)")
                         + "/" + g.position() + "/" + String.format("%.2f", g.confidence() == null ? 0.0 : g.confidence()))
                 .toList());
+        // 무늬 모델 1등과 확률(무늬 기준을 실제 사진으로 다시 정하려고, 2026-11-13).
+        if (patterns.ready()) {
+            List<String> tops = new ArrayList<>();
+            for (int i = 0; i < out.size(); i++) {
+                tops.add(out.get(i).id() + "=" + pats[i][2] + "@" + pats[i][3] + (pats[i][1] == null ? "" : "/" + pats[i][1]));
+            }
+            log.info("clothes_inspect patterns {}", tops);
+        }
         var pending = topCandidate == null ? null
                 : new InspectResult.PendingHelper(topCandidate.id, candidates.get(topCandidate),
                         "확실하지 않은 부분이 있어요.");
@@ -487,8 +560,17 @@ public class ClothesInspectService {
                 PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
                 out[i][2] = r.top();
                 out[i][3] = String.format(java.util.Locale.ROOT, "%.2f", r.confidence());
-                if (r.pattern() != null) {
+                if (r.pattern() != null && vague(r)) {
+                    // 무늬는 있는데 어떤 무늬인지는 덜 확실함: 모름으로 두고 patternGuess=other("무늬가 있는 것 같아요").
+                    // 동의했으면 GPT에게 물어 이름을 채움. agent는 무늬를 모르는 옷이 있으면 GPT 동의를 물음(agent #39).
+                    unsure.add(i);
+                    unsureResults.add(r);
+                } else if (r.pattern() != null) {
                     out[i] = new String[] {r.pattern(), "model", r.top(), out[i][3]};
+                    if (recheckAnimal(r)) {
+                        unsure.add(i);
+                        unsureResults.add(r);
+                    }
                 } else {
                     unsure.add(i);
                     unsureResults.add(r);
@@ -546,6 +628,26 @@ public class ClothesInspectService {
     /** 두 번째 색이 없을 때 무늬를 믿는 모델 확률(위 주석 참고). */
     static final double SINGLE_COLOR_PATTERN_SURE = 0.9;
 
+    /**
+     * 무늬 이름(줄무늬·체크·호피 등)을 대는 모델 확률. 이보다 낮으면 "무늬 있는"(other)으로만 말합니다.
+     * 2026-11-13 정지원: 호피 옷을 "줄무늬"라고 단정 → 틀린 무늬 이름은 말하지 않기. 근거(무늬 시험 사진 9,424장, 무지 제외 1등 무늬의
+     * 이름이 맞은 비율): test_fp 0.7~0.8 41%, 0.8~0.9 52%, 0.9~0.95 62%, 0.95~ 83% / test_sh 74%, 78%, 94%, 97%.
+     */
+    static final double PATTERN_NAME_SURE = 0.9;
+
+    /**
+     * 모델 무늬 이름을 그대로 믿지 않을 때. 무늬(무지·other 아님)인데 확률이 {@link #PATTERN_NAME_SURE} 미만이거나, 호피(animal)이면
+     * 확률과 상관없이(시험 사진에서 1등 호피 42장 중 19장이 틀림, 12장은 무지). 호피는 확신이 높으면 이름은 두되 동의했으면 GPT에게도 물음.
+     */
+    private static boolean vague(PatternClassifier.Result r) {
+        String p = r.pattern();
+        return !"plain".equals(p) && !"other".equals(p) && r.confidence() < PATTERN_NAME_SURE;
+    }
+
+    private static boolean recheckAnimal(PatternClassifier.Result r) {
+        return "animal".equals(r.pattern()) && r.confidence() >= PATTERN_NAME_SURE;
+    }
+
     private static boolean patternedByModel(String pattern, String checkedBy) {
         return pattern != null && !"plain".equals(pattern) && "model".equals(checkedBy);
     }
@@ -558,7 +660,11 @@ public class ClothesInspectService {
         if (p[0] != null || p[2] == null || "plain".equals(p[2]) || p[3] == null) {
             return null;
         }
-        return Double.parseDouble(p[3]) >= 0.35 ? p[2] : null;
+        // 1등 무늬 이름은 대지 않고 "무늬 있는 것 같아요"만(2026-11-13, 위 PATTERN_NAME_SURE). 그래픽은 색 규칙 때문에 이름을 남김.
+        if (Double.parseDouble(p[3]) < 0.35) {
+            return null;
+        }
+        return "graphic".equals(p[2]) ? "graphic" : "other";
     }
 
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */
@@ -609,8 +715,8 @@ public class ClothesInspectService {
                     }
                 }));
             }
-            // 전체를 timeout 한 번(+조금) 안에 끝냄. 늦은 것은 확인하지 못한 후보로 둡니다.
-            long deadline = System.nanoTime() + gpt.timeout().toNanos() + 500_000_000L;
+            // 전체를 defectTimeout 한 번(+조금) 안에 끝냄. 늦은 것은 확인하지 못한 후보로 둡니다.
+            long deadline = System.nanoTime() + gpt.defectTimeout().toNanos() + 200_000_000L;
             for (int i = 0; i < futures.size(); i++) {
                 Future<CropVerifier.Verdict> f = futures.get(i);
                 if (f == null) {

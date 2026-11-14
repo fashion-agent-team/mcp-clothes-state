@@ -11,7 +11,7 @@ class OpenAiWearCheckerTest {
 
     private static GptCheckProperties gpt(String key) {
         return new GptCheckProperties(key, "gpt-4.1-mini", "http://localhost:1", Duration.ofSeconds(1), 0.3, 512, 64, 0,
-                0.3, 0.25, "", 30);
+                0.3, 0.25, "", 30, Duration.ofSeconds(1));
     }
 
     private static WearCheckProperties wear(boolean enabled, String model) {

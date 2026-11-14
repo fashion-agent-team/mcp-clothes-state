@@ -14,7 +14,7 @@ class OpenAiPatternVerifierTest {
 
     private static GptCheckProperties props(String key) {
         return new GptCheckProperties(key, "gpt-4.1-mini", "http://localhost:1", Duration.ofSeconds(1), 0.3, 512, 64, 0,
-                0.3, 0.25, "", 30);
+                0.3, 0.25, "", 30, Duration.ofSeconds(1));
     }
 
     /** OpenAI 응답 모양으로 감싸기. */

@@ -465,14 +465,16 @@ public class ClothesInspectService {
             if (n >= wearProps.maxGarments()) {
                 break;
             }
-            if (s.whole || "shoes".equals(s.kind.category())) {
+            // 옷을 못 찾아 사진 전체로 답할 때는 낮은 확신도 상의 박스(wearHint)로 봄. 결과는 그 사진 전체 옷(s.id)에 붙임
+            Slot at = s.whole ? s.wearHint : s;
+            if (at == null || "shoes".equals(at.kind.category())) {
                 continue;
             }
             n++;
             try {
-                for (WearChecker.Issue i : wearModel.check(img, new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()},
-                        s.kind.category(), s.kind.name(), "back".equals(view) ? "back" : "front")) {
-                    out.add(new InspectResult.WearIssue(i.kind(), s.id, s.kind.category(), round(i.confidence()), "model"));
+                for (WearChecker.Issue i : wearModel.check(img, new double[] {at.box.x(), at.box.y(), at.box.w(), at.box.h()},
+                        at.kind.category(), at.kind.name(), "back".equals(view) ? "back" : "front")) {
+                    out.add(new InspectResult.WearIssue(i.kind(), s.id, at.kind.category(), round(i.confidence()), "model"));
                 }
             } catch (RuntimeException e) {
                 log.warn("옷 실수 모델 실패: {}", e.toString());
@@ -836,7 +838,9 @@ public class ClothesInspectService {
             }
         }
         if (slots.isEmpty()) {
-            slots.add(new Slot(GarmentKind.OTHER, WHOLE, null, true));
+            Slot whole = new Slot(GarmentKind.OTHER, WHOLE, null, true);
+            whole.wearHint = "worn".equals(mode) ? wearHint(img) : null;
+            slots.add(whole);
             return slots;
         }
         Comparator<Slot> order = "worn".equals(mode)
@@ -845,6 +849,25 @@ public class ClothesInspectService {
         slots.sort(order);
         return slots;
     }
+
+    /**
+     * 입은 사진에서 옷을 기준(0.4) 이상으로 못 찾았을 때, 옷 실수 확인에만 쓸 상의 박스. 기준을 낮춰(0.2) 상의·아우터·원피스 중 가장
+     * 확신하는 것. 응답의 옷 목록에는 넣지 않습니다(종류가 틀릴 수 있어서). 2026-11-14 실제 뒷모습 사진: 몸을 틀어 니트를 원피스 0.36으로 봄.
+     */
+    private Slot wearHint(BufferedImage img) {
+        if (!garments.ready() || wearModel == null || !wearModel.ready()) {
+            return null;
+        }
+        for (Detection d : garments.detect(img, WEAR_HINT_THRESHOLD)) {
+            GarmentKind k = GarmentKind.of(d.kind());
+            if (Set.of("top", "outer", "dress").contains(k.category())) {
+                return new Slot(k, box(d), round(d.confidence()), false);
+            }
+        }
+        return null;
+    }
+
+    static final double WEAR_HINT_THRESHOLD = 0.2;
 
     /** 결함 중심이 들어가는 옷 중 가장 작은 옷(상의 위 아우터처럼 겹칠 때 더 가까운 쪽). 없으면 중심이 가장 가까운 옷. */
     static Slot owner(List<Slot> slots, Detection d) {
@@ -915,6 +938,8 @@ public class ClothesInspectService {
         final boolean whole;
         final List<InspectResult.Defect> defects = new ArrayList<>();
         String id;
+        /** 사진 전체(whole)일 때 옷 실수 확인에만 쓸 낮은 확신도 상의 박스. 없으면 null. */
+        Slot wearHint;
 
         Slot(GarmentKind kind, InspectResult.Box box, Double confidence, boolean whole) {
             this.kind = kind;

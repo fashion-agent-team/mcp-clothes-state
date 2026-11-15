@@ -10,9 +10,9 @@
 | `run_B.sh` | v6ft를 batch 8로, 감시에 걸려 멈추면 batch 4로 한 번 더 | `./run_B.sh` |
 | `eval_B.py` | v2 시험 mAP50(얼룩·찢어짐) | `python eval_B.py <출력 json> <run> [run...]` |
 | `run_queue.sh` | B 끝나면 B 채점 → C1 → C2 차례로 | `./run_queue.sh` |
-| `run_C1.sh` | C1만 다시(LoRA → 머리만) | `./run_C1.sh` |
+| `run_C1.sh` | C1만 다시(LoRA → 분류 층만 학습) | `./run_C1.sh` |
 | `memwatch.sh` | 1분마다 메모리·컨테이너 기록, 위험할 때만 학습 멈춤 | `HEALTH_URL=... ./memwatch.sh` |
-| `c1_siglip_lora.py` | FashionSigLIP + LoRA / 머리만, 무늬 8종 학습과 채점 | `python c1_siglip_lora.py <lora\|probe> <출력 폴더> [batch]` |
+| `c1_siglip_lora.py` | FashionSigLIP + LoRA / 분류 층만 학습(몸통 고정, linear probe), 무늬 8종 학습과 채점 | `python c1_siglip_lora.py <lora\|probe> <출력 폴더> [batch]` |
 | `c2_owlv2_lora.py` | OWLv2 + LoRA 얼룩·찢어짐: 시간 재기 / 학습 / 채점 | `python c2_owlv2_lora.py <time\|train\|eval> <출력 폴더> [크기] [장수\|에폭]` |
 
 필요한 것: 젯슨 venv에 ultralytics 8.4.184, torch 2.14.1+cu132(그대로), peft 0.21.3, open_clip_torch 4.2.2, transformers 5.20.1. 모델 가중치는 `exp3/fashion-siglip`(Marqo/marqo-fashionSigLIP), `exp3/owlv2-base`(google/owlv2-base-patch16-ensemble)에 미리 받아 둡니다.

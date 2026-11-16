@@ -811,10 +811,11 @@ public class ClothesInspectService {
                 continue;
             }
             boolean unsure = s.whole || s.confidence == null || s.confidence < keep;
+            String pick = unsure && !s.whole ? favorModel(check.scores(s.embedding), s, p) : r.name();
             // 코트·재킷이 애매해 "겉옷"이라고 한 것은 글 벡터도 둘을 잘 못 가려서 그대로 둠
-            boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(r.name()) || "coat".equals(r.name()));
-            if (unsure && r.name() != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
-                GarmentKind k = GarmentKind.of(r.name());
+            boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(pick) || "coat".equals(pick));
+            if (unsure && pick != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
+                GarmentKind k = GarmentKind.of(pick);
                 if (!k.name().equals(s.kind.name())) {
                     s.kind = k;
                     changed++;
@@ -822,6 +823,29 @@ public class ClothesInspectService {
             }
         }
         return changed;
+    }
+
+    /**
+     * 글 벡터 점수에서 가장 높은 옷 이름. 단, 모델이 고른 큰 분류(상의·겉옷·원피스·하의)의 이름에는
+     * modelBonus + 확신도 × modelBonusPerConfidence를 더해 줍니다. 겉옷·원피스를 상의로 잘못 바꾸는 일을 줄임.
+     * 근거: docs/training-log.md "글 벡터 다시 보기에 모델 쪽 가산점"(2026-11-16).
+     */
+    static String favorModel(java.util.Map<String, Double> scores, Slot s, com.fashionagent.clothesstate.embed.TextCheckProperties p) {
+        String cat = s.kind.category();
+        double bonus = p.modelBonus() + (s.confidence == null ? 0 : s.confidence) * p.modelBonusPerConfidence();
+        String best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (var e : scores.entrySet()) {
+            if (GarmentTextCheck.NONE.equals(e.getKey())) {
+                continue;
+            }
+            double v = e.getValue() + (cat.equals(GarmentKind.of(e.getKey()).category()) ? bonus : 0);
+            if (v > bestScore) {
+                best = e.getKey();
+                bestScore = v;
+            }
+        }
+        return best;
     }
 
     private List<Slot> findGarments(BufferedImage img, String mode) {

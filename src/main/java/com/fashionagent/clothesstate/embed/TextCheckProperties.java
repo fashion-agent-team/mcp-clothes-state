@@ -16,5 +16,12 @@ public record TextCheckProperties(
         /** 내려놓은 사진: 옷 종류 모델 확신도가 이보다 낮으면 글 벡터로 종류를 다시 고름. */
         @DefaultValue("0.7") double keepLaid,
         /** 입은 사진: 옷 종류 모델 확신도가 이보다 낮으면 글 벡터로 종류를 다시 고름(입은 사진은 모델이 약함). */
-        @DefaultValue("0.9") double keepWorn) {
+        @DefaultValue("0.9") double keepWorn,
+        /**
+         * 확신도가 낮아 글 벡터로 다시 고를 때, 옷 종류 모델이 고른 큰 분류(상의·겉옷·원피스·하의)의 이름 점수에 더하는 값.
+         * 글 벡터 1·2등 차이가 아주 작을 때(겉옷↔상의 0.005 안팎) 모델 쪽을 따르게 함. 0이면 끔.
+         */
+        @DefaultValue("0.01") double modelBonus,
+        /** 위 값에 더해, 모델 확신도 × 이 값만큼 더 줌. */
+        @DefaultValue("0.005") double modelBonusPerConfidence) {
 }

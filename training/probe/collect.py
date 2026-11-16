@@ -54,7 +54,7 @@ def run(jobs, out, mode):
             else:
                 label = lab if best >= 0.3 else ("none" if best < 0.1 else None)
             if label is None or label == "skip": continue
-            rows.append({"img": path, "box": bx, "label": label, "iou": round(best, 3), "split": split, "src": "fp-server" if mode == "worn" else "cc0-server",
+            rows.append({"img": path, "box": bx, "label": label, "iou": round(best, 3), "split": split, "src": ("df2-server" if "df2" in path else "fp-server") if mode == "worn" else "cc0-server",
                          "serverCat": g.get("category"), "conf": g.get("confidence"), "serverName": g.get("name"), "v": g["embedding"]})
         if not rows: rows = [{"img": path, "empty": True}]
         with lock:
@@ -66,6 +66,7 @@ def run(jobs, out, mode):
     print("끝", out, flush=True)
 if __name__ == "__main__":
     k = sys.argv[1]; random.seed(11)
+    if k == "df2": pass
     if k == "fp":
         ann, img_dir, split, n, out = sys.argv[2:7]; d = json.load(open(ann))
         cats = {c["id"]: c["name"] for c in d["categories"]}; imgs = {i["id"]: i for i in d["images"]}; by = {}
@@ -78,9 +79,30 @@ if __name__ == "__main__":
             rs = set(rare.split(",")); ids = [i for i in ids if any(l in rs for _, l in by[i])]
             print("rare images", len(ids), flush=True)
         run([(os.path.join(img_dir, imgs[i]["file_name"]), by[i], split) for i in ids[:int(n)]], out, "worn")
-    else:
+    elif k == "cc0":
         root, n, out = sys.argv[2:5]; jobs = []
         for r in csv.DictReader(open(os.path.join(root, "images.csv"))):
             lab = CC0.get(r["label"]); p = os.path.join(root, "images", r["image"] + ".jpg")
             if lab and os.path.exists(p): jobs.append((p, [([0, 0, 1, 1], lab)], "test" if random.random() < 0.2 else "train"))
         random.shuffle(jobs); run(jobs[:int(n)], out, "laid")
+
+# ---- DF2 train (user photos) ----
+DF2MAP = {"short sleeve top": "tshirt|shirt", "long sleeve top": "tshirt|shirt|sweater", "short sleeve outwear": "jacket|shirt|cardigan",
+          "long sleeve outwear": "jacket|coat|cardigan", "vest": "vest|tshirt", "sling": "tshirt|vest", "shorts": "shorts",
+          "trousers": "pants", "skirt": "skirt", "short sleeve dress": "dress", "long sleeve dress": "dress",
+          "vest dress": "dress", "sling dress": "dress"}
+def df2_jobs(img_dir, ann_dir, names):
+    jobs = []
+    for n in names:
+        a = json.load(open(os.path.join(ann_dir, n + ".json")))
+        im = Image.open(os.path.join(img_dir, n + ".jpg")); W, H = im.size; gts = []
+        for k, it in a.items():
+            if not k.startswith("item"): continue
+            x1, y1, x2, y2 = it["bounding_box"]
+            gts.append(([x1 / W, y1 / H, (x2 - x1) / W, (y2 - y1) / H], DF2MAP.get(it["category_name"], "skip")))
+        jobs.append((os.path.join(img_dir, n + ".jpg"), gts, "train"))
+    return jobs
+if __name__ == "__main__" and sys.argv[1] == "df2":
+    img_dir, ann_dir, list_file, out = sys.argv[2:6]
+    names = [l.strip() for l in open(list_file) if l.strip()]
+    run(df2_jobs(img_dir, ann_dir, names), out, "worn")

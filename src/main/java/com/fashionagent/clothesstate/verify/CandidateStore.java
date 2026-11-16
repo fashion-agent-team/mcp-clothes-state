@@ -91,6 +91,36 @@ public class CandidateStore {
         }
     }
 
+    /**
+     * 옷 실수 재학습 후보(정지원 2026-11-16 "지피티로 단추 엇갈린거 학습하면서"): GPT에게 보낸 입은 옷 조각(얼굴 쪽은 이미 회색)과
+     * .json(task=wear, 실수 종류, GPT가 실수라고 했는지·확신도, 우리 모델 확률). wear-종류-아이디.jpg. reviewed=false.
+     */
+    public Path saveWear(BufferedImage piece, String kind, boolean gptSaysMistake, double gptConfidence, String gptModel,
+            double modelProbability, String modelVersion) {
+        if (!enabled()) {
+            return null;
+        }
+        try {
+            LocalDate today = LocalDate.now(KST);
+            Path dir = Path.of(props.candidateDir(), today.toString());
+            if (Files.notExists(dir)) {
+                prune(today);
+            }
+            Files.createDirectories(dir);
+            String id = "wear-" + kind + "-" + UUID.randomUUID();
+            Path jpg = dir.resolve(id + ".jpg");
+            ImageIO.write(piece, "jpg", jpg.toFile());
+            String meta = String.format(Locale.ROOT,
+                    "{\"task\":\"wear\",\"kind\":\"%s\",\"gptMistake\":%s,\"gptConfidence\":%.3f,\"gptModel\":\"%s\",\"modelProbability\":%.3f,\"modelVersion\":\"%s\",\"reviewed\":false}%n",
+                    kind, gptSaysMistake, gptConfidence, gptModel, modelProbability, modelVersion);
+            Files.writeString(dir.resolve(id + ".json"), meta);
+            return jpg;
+        } catch (IOException | RuntimeException e) {
+            log.warn("옷 실수 학습 후보 저장 실패: {}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     /** 날짜 폴더(yyyy-MM-dd) 중 retentionDays보다 오래된 것을 지움. */
     public void prune(LocalDate today) {
         Path root = Path.of(props.candidateDir());

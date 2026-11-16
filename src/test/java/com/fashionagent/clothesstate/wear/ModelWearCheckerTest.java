@@ -10,9 +10,10 @@ import org.springframework.core.io.DefaultResourceLoader;
 class ModelWearCheckerTest {
 
     /** 정해 둔 확률을 돌려주는 시험용 분류기. 받은 자르기 박스를 기억. */
-    static final class Fixed extends OnnxBinaryClassifier {
+    static class Fixed extends OnnxBinaryClassifier {
         final double p;
         double[] last;
+        final java.util.List<double[]> calls = new java.util.ArrayList<>();
 
         Fixed(double p) {
             super(null, 224, 1, "fixed");
@@ -27,6 +28,7 @@ class ModelWearCheckerTest {
         @Override
         public double probability(BufferedImage img, double x, double y, double w, double h, double margin) {
             last = new double[] {x, y, w, h, margin};
+            calls.add(last);
             return p;
         }
 
@@ -36,8 +38,8 @@ class ModelWearCheckerTest {
         }
     }
 
-    private static final WearModelProperties PROPS = new WearModelProperties(true, "a", "b", "c", "wear1", 0.8, 0.8, 0.8);
-    private final BufferedImage img = new BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB);
+    private static final WearModelProperties PROPS = new WearModelProperties(true, "a", "b", "c", "wear1", 0.8, 0.8, 0.8, 0.95);
+    private final BufferedImage img = new BufferedImage(400, 400, BufferedImage.TYPE_INT_RGB);
     private final double[] box = {0.2, 0.2, 0.5, 0.4};
 
     @Test
@@ -48,11 +50,42 @@ class ModelWearCheckerTest {
         assertThat(c.check(img, box, "top", "티셔츠", "back")).extracting(WearChecker.Issue::kind).containsExactly("tag_out");
         assertThat(c.check(img, box, "top", "티셔츠", "front")).extracting(WearChecker.Issue::kind)
                 .containsExactly("backwards");
+        assertThat(tag.calls).hasSize(2); // 가운데 창이 기준을 넘으면 옆 창은 안 봄
+        tag.last = tag.calls.get(0);
         assertThat(tag.last[0]).isEqualTo(0.3, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(tag.last[1]).isEqualTo(0.16, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(tag.last[2]).isEqualTo(0.3, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(tag.last[3]).isEqualTo(0.16, org.assertj.core.data.Offset.offset(1e-9));
         assertThat(c.check(img, box, "bottom", "바지", "back")).isEmpty();
+    }
+
+    /** 부를 때마다 차례로 값을 돌려줌. */
+    static final class Seq extends Fixed {
+        private final double[] ps;
+        private int i;
+
+        Seq(double... ps) {
+            super(0);
+            this.ps = ps;
+        }
+
+        @Override
+        public double probability(BufferedImage img, double x, double y, double w, double h, double margin) {
+            super.probability(img, x, y, w, h, margin);
+            return ps[Math.min(i++, ps.length - 1)];
+        }
+    }
+
+    @Test
+    @DisplayName("택: 가운데 창이 기준 미만이면 옆·작은 창 7개를 더 보고 0.95 이상만 인정")
+    void tagScan() {
+        var hit = new Seq(0.23, 0.01, 0.39, 0.03, 0.99, 0.0, 0.22, 0.42);
+        var c = new ModelWearChecker(PROPS, hit, null, null);
+        assertThat(c.check(img, box, "top", "니트", "back")).extracting(WearChecker.Issue::kind, WearChecker.Issue::confidence)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("tag_out", 0.99));
+        assertThat(hit.calls).hasSize(8);
+        var weak = new ModelWearChecker(PROPS, new Seq(0.5, 0.9, 0.94, 0.1), null, null);
+        assertThat(weak.check(img, box, "top", "니트", "back")).isEmpty();
     }
 
     @Test
@@ -74,9 +107,9 @@ class ModelWearCheckerTest {
     @DisplayName("모델 파일이 없거나 꺼져 있으면 준비 안 됨")
     void notReady() {
         var none = new WearModelProperties(true, "classpath:nope1.onnx", "classpath:nope2.onnx", "classpath:nope3.onnx",
-                "v", 0.8, 0.8, 0.8);
+                "v", 0.8, 0.8, 0.8, 0.95);
         assertThat(new ModelWearChecker(none, new DefaultResourceLoader()).ready()).isFalse();
-        var off = new WearModelProperties(false, "a", "b", "c", "v", 0.8, 0.8, 0.8);
+        var off = new WearModelProperties(false, "a", "b", "c", "v", 0.8, 0.8, 0.8, 0.95);
         assertThat(new ModelWearChecker(off, new DefaultResourceLoader()).ready()).isFalse();
     }
 
@@ -84,7 +117,7 @@ class ModelWearCheckerTest {
     @DisplayName("레포에 넣은 모델 파일을 읽음")
     void realModels() {
         var props = new WearModelProperties(true, "classpath:models/yolo26n_wear_tag.onnx",
-                "classpath:models/yolo26n_wear_button.onnx", "classpath:models/yolo26n_wear_inside.onnx", "v", 0.8, 0.8, 0.8);
+                "classpath:models/yolo26n_wear_button.onnx", "classpath:models/yolo26n_wear_inside.onnx", "v", 0.8, 0.8, 0.8, 0.95);
         var c = new ModelWearChecker(props, new DefaultResourceLoader());
         assertThat(c.ready()).isTrue();
         var white = new BufferedImage(400, 600, BufferedImage.TYPE_INT_RGB);

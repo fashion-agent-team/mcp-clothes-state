@@ -19,7 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 입은 옷 조각을 OpenAI Chat Completions(그림 입력)로 보내 옷 실수를 묻습니다. 키가 없거나 꺼져 있으면 ready()=false.
- * 조각은 저장하지 않습니다(몸이 들어간 사진이라 학습 후보로도 남기지 않음).
+ * 2026-11-16부터 GPT 답과 함께 이 조각(얼굴 쪽 회색)을 학습 후보로 저장할 수 있습니다(WearLearnProperties, 30일, 사용자 요청 "학습하면서").
  */
 @Component
 public class OpenAiWearChecker implements WearChecker {

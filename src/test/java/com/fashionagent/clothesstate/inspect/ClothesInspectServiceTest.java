@@ -670,6 +670,19 @@ class ClothesInspectServiceTest {
     }
 
     @Test
+    @DisplayName("입은 사진에서 위쪽에 있거나 큰 '신발'은 상의로(가까이 찍은 셔츠를 신발로 봄), 아래 작은 신발은 그대로")
+    void shoesUpTop() {
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.65, 0.03, 0.02, 0.96, 0.79), "worn").name())
+                .isEqualTo("상의");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.32, 0.10, 0.10, 0.13, 0.13), "worn").category())
+                .isEqualTo("top");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.3, 0.9, 0.4, 0.08), "worn").category())
+                .isEqualTo("shoes");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.1, 0.1, 0.5, 0.5), "laid").category())
+                .isEqualTo("shoes");
+    }
+
+    @Test
     @DisplayName("옷 실수 조각: 사진 위쪽은 회색으로 가리고, 긴 변 768 이하, 다 가려지면 null")
     void wearCrop() {
         var img = new java.awt.image.BufferedImage(1000, 2000, java.awt.image.BufferedImage.TYPE_INT_RGB);

@@ -28,7 +28,8 @@ public class ModelWearChecker implements AutoCloseable {
     private final WearModelProperties props;
 
     private static final Set<String> NECK = Set.of("top", "outer", "dress");
-    private static final Set<String> BUTTONED = Set.of("셔츠", "가디건");
+    /** 상의(종류를 모르는 윗옷): 2026-11-16 가까이 찍은 셔츠를 옷 찾기가 신발로 봐서 상의로 바꿔 줄 때도 단추를 봄. */
+    private static final Set<String> BUTTONED = Set.of("셔츠", "가디건", "상의");
     private static final Set<String> INSIDE = Set.of("셔츠", "티셔츠", "니트", "원피스", "상의");
 
     @org.springframework.beans.factory.annotation.Autowired

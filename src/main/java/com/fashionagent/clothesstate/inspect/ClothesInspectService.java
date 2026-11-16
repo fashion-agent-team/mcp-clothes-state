@@ -915,7 +915,7 @@ public class ClothesInspectService {
                 if (slots.size() >= props.maxGarments()) {
                     break;
                 }
-                slots.add(new Slot(GarmentKind.of(d.kind()), box(d), round(d.confidence()), false));
+                slots.add(new Slot(kindOf(d, mode), box(d), round(d.confidence()), false));
             }
         }
         if (slots.isEmpty()) {
@@ -932,6 +932,18 @@ public class ClothesInspectService {
     }
 
     /**
+     * 모델 이름 → 옷 종류. 입은 사진에서 "신발"이 사진 위쪽(가운데가 사진 높이 55%보다 위)에 있거나 크면(높이 40% 넘음) 신발일 수 없어
+     * 상의로 봅니다. 2026-11-16 실제 거울 셀카(셔츠를 가까이 찍음): fashion12가 셔츠 전체를 shoes 0.65·0.32로 봐서 단추 검사를 안 함.
+     */
+    static GarmentKind kindOf(Detection d, String mode) {
+        GarmentKind k = GarmentKind.of(d.kind());
+        if ("worn".equals(mode) && "shoes".equals(k.category()) && (d.centerY() < 0.55 || d.h() > 0.4)) {
+            return GarmentKind.of("top");
+        }
+        return k;
+    }
+
+    /**
      * 입은 사진에서 옷을 기준(0.4) 이상으로 못 찾았을 때, 옷 실수 확인에만 쓸 상의 박스. 기준을 낮춰(0.2) 상의·아우터·원피스 중 가장
      * 확신하는 것. 응답의 옷 목록에는 넣지 않습니다(종류가 틀릴 수 있어서). 2026-11-14 실제 뒷모습 사진: 몸을 틀어 니트를 원피스 0.36으로 봄.
      */
@@ -940,7 +952,7 @@ public class ClothesInspectService {
             return null;
         }
         for (Detection d : garments.detect(img, WEAR_HINT_THRESHOLD)) {
-            GarmentKind k = GarmentKind.of(d.kind());
+            GarmentKind k = kindOf(d, "worn");
             if (Set.of("top", "outer", "dress").contains(k.category())) {
                 return new Slot(k, box(d), round(d.confidence()), false);
             }

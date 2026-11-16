@@ -17,9 +17,15 @@ public record WearModelProperties(
         @DefaultValue("classpath:models/yolo26n_wear_button.onnx") String buttonModel,
         /** 안팎 뒤집힘(솔기 시접·비친 프린트). */
         @DefaultValue("classpath:models/yolo26n_wear_inside.onnx") String insideModel,
-        @DefaultValue("yolo26n-wear1") String version,
+        @DefaultValue("yolo26n-wear3") String version,
         @DefaultValue("0.8") double tagThreshold,
         @DefaultValue("0.8") double buttonThreshold,
         /** 2차(in2) 합성 검증: 0.7에서 90.0% / 오탐 1.9%, 0.8에서 88.1% / 1.1%. */
-        @DefaultValue("0.7") double insideThreshold) {
+        @DefaultValue("0.7") double insideThreshold,
+        /**
+         * 목 부분을 옆으로 옮기거나 작게 잘라 한 번 더 보는 창(7개)의 택 기준. 몸을 틀어 목이 옷 박스 가운데에 없는 사진용
+         * (2026-11-14 실제 뒷모습 사진: 가운데 창 0.23, 옆 창 1.0). 합성 검증 400장: 가운데만 0.8 → 찾음 88.9%·오탐 0.8%,
+         * 창 8개 모두 0.95 → 92.8%·1.2%. 창이 많아 오탐이 늘어서 옆 창만 기준을 높게.
+         */
+        @DefaultValue("0.95") double tagScanThreshold) {
 }

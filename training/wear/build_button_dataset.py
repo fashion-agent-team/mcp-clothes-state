@@ -30,14 +30,15 @@ def ann_mask(a, h, w):
     return mask_utils.decode(rle).astype(bool)
 
 
-def shift_half(img, m, box, rng, vertical=True):
+def shift_half(img, m, box, rng, vertical=True, big=False):
     """옷 가운데 세로선 기준 한쪽 절반(옷 픽셀만)을 d만큼 아래로. vertical=False면 옆으로만 2~4% 밀어
     자른 자국은 같지만 높이는 맞는 사진(ok)을 만듦: 모델이 자른 자국이 아니라 높이 차이를 보게."""
     arr = np.array(img)
     x, y, w, h = box
     xs = np.where(m.any(axis=0))[0]
     cx = int((xs.min() + xs.max()) / 2 + w * rng.uniform(-0.04, 0.04))
-    d = max(3, int(h * rng.uniform(0.04, 0.09)))
+    # v3(2026-11-14 실제 사진: 한 칸 넘게 어긋나 밑단이 옷 길이 20% 넘게 차이, 깃도 한쪽만 올라감) → 큰 어긋남도
+    d = max(3, int(h * (rng.uniform(0.09, 0.25) if big else rng.uniform(0.04, 0.09))))
     dx = 0
     if not vertical:
         d = 0
@@ -49,6 +50,25 @@ def shift_half(img, m, box, rng, vertical=True):
     else:
         side[:, :cx] = True
     region = m & side
+    if big:
+        # 크게 내리면 단순 이동은 위쪽에 깃이 두 번 보임 → 깃 아래 15% 구간에서 점점 내려가다 그 아래는 d만큼 그대로(한 칸 밀려 잠긴 앞판)
+        rows = np.where(region.any(axis=1))[0]
+        top, bot = rows.min(), rows.max()
+        ramp = max(1.0, (bot - top) * 0.15)
+        cols = np.where(side[0])[0]
+        for yo in range(top, min(arr.shape[0], bot + d + 1)):
+            # 나간 줄 yo가 어느 원래 줄에서 오는지(단조 증가 사상의 역)
+            if yo - top < ramp + d:
+                # yo = y + d*(y-top)/ramp  (y-top < ramp)
+                ysrc = top + (yo - top) * ramp / (ramp + d)
+            else:
+                ysrc = yo - d
+            yi = int(round(ysrc))
+            if yi < top or yi > bot:
+                continue
+            src_row = region[yi, cols]
+            out[yo, cols[src_row]] = arr[yi, cols[src_row]]
+        return Image.fromarray(out)
     ys, xs2 = np.where(region)
     keep = (ys + d < arr.shape[0]) & (xs2 + dx >= 0) & (xs2 + dx < arr.shape[1])
     out[ys[keep] + d, xs2[keep] + dx] = arr[ys[keep], xs2[keep]]
@@ -98,7 +118,7 @@ def main():
         split = 'val' if a['image_id'] % 10 == 0 else 'train'
         # v2: 한 벌에서 두 쌍(원본·옆으로만 민 것 / 서로 다른 쪽·높이로 내린 것 둘)
         pairs = [('ok', img, 'a'), ('ok', shift_half(img, m, a['bbox'], rng, vertical=False), 'b'),
-                 ('shifted', shift_half(img, m, a['bbox'], rng), 'a'), ('shifted', shift_half(img, m, a['bbox'], rng), 'b')]
+                 ('shifted', shift_half(img, m, a['bbox'], rng), 'a'), ('shifted', shift_half(img, m, a['bbox'], rng, big=True), 'b')]
         for cls, src, tag in pairs:
             os.makedirs(os.path.join(out_dir, split, cls), exist_ok=True)
             crop(src, a['bbox']).save(os.path.join(out_dir, split, cls, f"{a['id']}{tag}.jpg"), quality=rng.randint(60, 95))

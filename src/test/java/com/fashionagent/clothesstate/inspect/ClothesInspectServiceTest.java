@@ -619,6 +619,104 @@ class ClothesInspectServiceTest {
         assertThat(wear.asked).isEmpty();
     }
 
+    /** 정해 둔 확률을 돌려주는 옷 실수 모델. */
+    private static com.fashionagent.clothesstate.wear.ModelWearChecker fixedWearModel(java.util.Map<String, Double> probs) {
+        var wp = new com.fashionagent.clothesstate.wear.WearModelProperties(true, "a", "b", "c", "wear3", 0.8, 0.8, 0.7,
+                0.95);
+        return new com.fashionagent.clothesstate.wear.ModelWearChecker(wp, null, null, null) {
+            @Override
+            public boolean ready() {
+                return true;
+            }
+
+            @Override
+            public java.util.Map<String, Double> probabilities(java.awt.image.BufferedImage img, double[] box,
+                    String category, String name, String view) {
+                return probs;
+            }
+        };
+    }
+
+    private ClothesInspectService learnService(com.fashionagent.clothesstate.FakeWearChecker wear,
+            com.fashionagent.clothesstate.wear.ModelWearChecker model, com.fashionagent.clothesstate.wear.WearTrust trust) {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
+        return new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder,
+                pattern, patternGpt, wear, ClothesInspectService.DEFAULT_WEAR, model, trust);
+    }
+
+    private static com.fashionagent.clothesstate.wear.WearLearnProperties learnProps() {
+        return new com.fashionagent.clothesstate.wear.WearLearnProperties(true, 200, 50, 10, 0.95, 0.9, 0.1, 0.9, 0.05,
+                0.1, "");
+    }
+
+    @Test
+    @DisplayName("GPT에게 배우기: 모델 확률과 GPT 답을 기록하고, GPT가 실수라 한 조각은 학습 후보로 저장")
+    void wearLearn() throws Exception {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("buttons_misaligned", 0.9, "gpt-x"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var trust = new com.fashionagent.clothesstate.wear.WearTrust(learnProps(), tmp.resolve("wear-trust.json"), "wear3",
+                () -> 0.5);
+        var s = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.02, "backwards", 0.0)), trust);
+
+        InspectResult r = s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).hasSize(1);
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::checkedBy).containsExactly("gpt");
+        assertThat(trust.stats("buttons_misaligned").samples()).isEqualTo(1);
+        assertThat(trust.stats("buttons_misaligned").positives()).isEqualTo(1);
+        assertThat(trust.stats("backwards").samples()).isEqualTo(1);
+        assertThat(tmp.resolve("wear-trust.json")).exists();
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("wear-") && !n.equals("wear-trust.json")).sorted().toList();
+            // 단추: GPT가 실수라 함 → 저장. 앞뒤: 둘 다 확신하는 정상, 난수 0.5 ≥ 10% → 저장 안 함
+            assertThat(saved).hasSize(2).allMatch(n -> n.startsWith("wear-buttons_misaligned-"));
+        }
+    }
+
+    @Test
+    @DisplayName("점점 덜 묻기: 볼 수 있는 실수를 모두 믿게 되고 모델이 확신하면 GPT에게 안 묻고 모델 답만")
+    void wearSkip() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var trust = new com.fashionagent.clothesstate.wear.WearTrust(learnProps(), null, "wear3", () -> 0.5);
+        for (String k : List.of("buttons_misaligned", "backwards")) {
+            for (int i = 0; i < 60; i++) {
+                trust.record(k, 0.01, false);
+            }
+            for (int i = 0; i < 12; i++) {
+                trust.record(k, 0.97, true);
+            }
+        }
+        var s = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.95, "backwards", 0.0)), trust);
+        InspectResult r = s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).isEmpty();
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::kind, InspectResult.WearIssue::checkedBy)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("buttons_misaligned", "model"));
+
+        // 모델이 애매하면(0.5) 다시 물음
+        var s2 = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.5, "backwards", 0.0)), trust);
+        s2.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("입은 사진에서 위쪽에 있거나 큰 '신발'은 상의로(가까이 찍은 셔츠를 신발로 봄), 아래 작은 신발은 그대로")
+    void shoesUpTop() {
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.65, 0.03, 0.02, 0.96, 0.79), "worn").name())
+                .isEqualTo("상의");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.32, 0.10, 0.10, 0.13, 0.13), "worn").category())
+                .isEqualTo("top");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.3, 0.9, 0.4, 0.08), "worn").category())
+                .isEqualTo("shoes");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.1, 0.1, 0.5, 0.5), "laid").category())
+                .isEqualTo("shoes");
+    }
+
     @Test
     @DisplayName("옷 실수 조각: 사진 위쪽은 회색으로 가리고, 긴 변 768 이하, 다 가려지면 null")
     void wearCrop() {

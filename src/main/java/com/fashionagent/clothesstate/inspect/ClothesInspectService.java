@@ -19,6 +19,7 @@ import com.fashionagent.clothesstate.verify.GptCheckProperties;
 import com.fashionagent.clothesstate.wear.ModelWearChecker;
 import com.fashionagent.clothesstate.wear.WearCheckProperties;
 import com.fashionagent.clothesstate.wear.WearChecker;
+import com.fashionagent.clothesstate.wear.WearTrust;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -82,6 +83,8 @@ public class ClothesInspectService {
     private final WearCheckProperties wearProps;
     /** 우리 옷 실수 모델(택·단추·뒤집힘). 없으면 null. 사진을 밖으로 안 보내 동의 없이도 돌림. */
     private final ModelWearChecker wearModel;
+    /** GPT 답으로 모델을 얼마나 믿을지(점점 덜 묻기). 없으면 null(늘 물음). */
+    private final WearTrust trust;
     /** GPT 동시 요청 수(시험과 같게 4). */
     private final Semaphore gptSlots = new Semaphore(4);
 
@@ -92,7 +95,7 @@ public class ClothesInspectService {
     public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             ColorModel colors, PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear,
-            WearCheckProperties wearProps, ModelWearChecker wearModel) {
+            WearCheckProperties wearProps, ModelWearChecker wearModel, WearTrust trust) {
         this.props = props;
         this.detector = detector;
         this.garments = garments;
@@ -106,6 +109,7 @@ public class ClothesInspectService {
         this.wear = wear;
         this.wearProps = wearProps;
         this.wearModel = wearModel;
+        this.trust = trust;
     }
 
     /** 색 인식 모델 없이(픽셀 규칙만). 시험용. */
@@ -113,7 +117,7 @@ public class ClothesInspectService {
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             PatternClassifier patterns, PatternVerifier patternVerifier) {
         this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, WearChecker.NONE,
-                DEFAULT_WEAR, null);
+                DEFAULT_WEAR, null, null);
     }
 
     /** 옷 실수 확인 시험용(색 인식 모델 없이). */
@@ -121,7 +125,7 @@ public class ClothesInspectService {
             GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
             PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps) {
         this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
-                null);
+                null, null);
     }
 
     /** 우리 옷 실수 모델 시험용. */
@@ -130,7 +134,16 @@ public class ClothesInspectService {
             PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps,
             ModelWearChecker wearModel) {
         this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
-                wearModel);
+                wearModel, null);
+    }
+
+    /** 점점 덜 묻기 시험용. */
+    public ClothesInspectService(ClothesStateProperties props, DefectDetector detector, GarmentDetector garments,
+            GptCheckProperties gpt, CropVerifier verifier, CandidateStore store, GarmentEmbedder embedder,
+            PatternClassifier patterns, PatternVerifier patternVerifier, WearChecker wear, WearCheckProperties wearProps,
+            ModelWearChecker wearModel, WearTrust trust) {
+        this(props, detector, garments, gpt, verifier, store, embedder, null, patterns, patternVerifier, wear, wearProps,
+                wearModel, trust);
     }
 
     static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(3),
@@ -374,9 +387,15 @@ public class ClothesInspectService {
         double hideTop = "back".equals(side) ? wearProps.backHideTop() : wearProps.frontHideTop();
         ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
         List<Slot> asked = new ArrayList<>();
+        List<BufferedImage> pieces = new ArrayList<>();
         List<Future<List<WearChecker.Issue>>> futures = new ArrayList<>();
+        boolean learn = learning();
+        // 믿게 된 실수가 하나라도 있으면 묻기 전에 모델을 먼저 돌려 건너뛸지 봄. 아니면 GPT부터 보내고 모델은 그동안(아래)
+        boolean gate = learn && trust.anyTrusted();
+        int skipped = 0;
+        int considered = 0;
         for (Slot s : slots) {
-            if (asked.size() >= wearProps.maxGarments()) {
+            if (considered >= wearProps.maxGarments()) {
                 break;
             }
             if (s.whole || "shoes".equals(s.kind.category())) {
@@ -386,8 +405,17 @@ public class ClothesInspectService {
             if (piece == null) {
                 continue; // 옷 박스가 다 가려지는 위쪽에 있음
             }
+            considered++;
+            if (gate) {
+                s.wearProbs = wearProbs(img, s, side);
+                if (trust.canSkip(s.wearProbs)) {
+                    skipped++;
+                    continue;
+                }
+            }
             String name = s.kind.english();
             asked.add(s);
+            pieces.add(piece);
             futures.add(pool.submit(() -> {
                 gptSlots.acquire();
                 try {
@@ -397,24 +425,71 @@ public class ClothesInspectService {
                 }
             }));
         }
+        if (skipped > 0) {
+            log.info("옷 실수 GPT 건너뜀 {}벌(모델을 믿을 만하고 확신함)", skipped);
+        }
         if (asked.isEmpty()) {
             pool.shutdownNow();
             pool.close();
             return null;
         }
-        return new WearJob(pool, asked, futures, System.nanoTime() + wearProps.timeout().toNanos() + 500_000_000L);
+        if (learn) {
+            for (Slot s : asked) {
+                if (s.wearProbs == null) {
+                    s.wearProbs = wearProbs(img, s, side); // GPT를 기다리는 동안
+                }
+            }
+        }
+        return new WearJob(pool, asked, pieces, futures,
+                System.nanoTime() + wearProps.timeout().toNanos() + 500_000_000L);
+    }
+
+    private boolean learning() {
+        return trust != null && trust.enabled() && wearModel != null && wearModel.ready();
+    }
+
+    /** 이 옷에 볼 수 있는 실수별 모델 확률. 실패하면 빈 지도. */
+    private Map<String, Double> wearProbs(BufferedImage img, Slot s, String side) {
+        try {
+            return wearModel.probabilities(img, new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()},
+                    s.kind.category(), s.kind.name(), side);
+        } catch (RuntimeException e) {
+            log.warn("옷 실수 모델 실패: {}", e.toString());
+            return Map.of();
+        }
+    }
+
+    /** GPT 답을 모델 확률과 견줘 기록하고, 배울 만한 조각은 학습 후보로 저장. */
+    private void learn(Slot s, BufferedImage piece, List<WearChecker.Issue> issues) {
+        if (!learning() || s.wearProbs == null || s.wearProbs.isEmpty()) {
+            return;
+        }
+        String gptModel = issues.isEmpty() ? "" : issues.get(0).model();
+        for (var e : s.wearProbs.entrySet()) {
+            String kind = e.getKey();
+            double p = e.getValue();
+            WearChecker.Issue g = issues.stream().filter(i -> i.kind().equals(kind)).findFirst().orElse(null);
+            boolean says = g != null && g.confidence() >= wearProps.acceptConfidence();
+            trust.record(kind, p, says);
+            if (trust.worthSaving(p, says)) {
+                store.saveWear(piece, kind, says, g == null ? 0 : g.confidence(), gptModel, p, wearModel.version());
+            }
+        }
     }
 
     /** 보내 둔 옷 실수 확인. collect는 한 번만 부릅니다. */
     private final class WearJob {
         final ExecutorService pool;
         final List<Slot> asked;
+        final List<BufferedImage> pieces;
         final List<Future<List<WearChecker.Issue>>> futures;
         final long deadline;
 
-        WearJob(ExecutorService pool, List<Slot> asked, List<Future<List<WearChecker.Issue>>> futures, long deadline) {
+        WearJob(ExecutorService pool, List<Slot> asked, List<BufferedImage> pieces,
+                List<Future<List<WearChecker.Issue>>> futures, long deadline) {
             this.pool = pool;
             this.asked = asked;
+            this.pieces = pieces;
             this.futures = futures;
             this.deadline = deadline;
         }
@@ -433,6 +508,7 @@ public class ClothesInspectService {
                             continue;
                         }
                         answered = true;
+                        learn(s, pieces.get(i), issues);
                         for (WearChecker.Issue issue : issues) {
                             if (issue.confidence() >= wearProps.acceptConfidence() && fits(issue.kind(), s.kind)) {
                                 out.add(new InspectResult.WearIssue(issue.kind(), s.id, s.kind.category(),
@@ -453,6 +529,9 @@ public class ClothesInspectService {
                 pool.shutdownNow();
                 pool.close();
             }
+            if (answered && learning()) {
+                trust.save();
+            }
             return answered ? out : null;
         }
     }
@@ -472,8 +551,10 @@ public class ClothesInspectService {
             }
             n++;
             try {
-                for (WearChecker.Issue i : wearModel.check(img, new double[] {at.box.x(), at.box.y(), at.box.w(), at.box.h()},
-                        at.kind.category(), at.kind.name(), "back".equals(view) ? "back" : "front")) {
+                List<WearChecker.Issue> found = at.wearProbs != null ? wearModel.issues(at.wearProbs)
+                        : wearModel.check(img, new double[] {at.box.x(), at.box.y(), at.box.w(), at.box.h()},
+                                at.kind.category(), at.kind.name(), "back".equals(view) ? "back" : "front");
+                for (WearChecker.Issue i : found) {
                     out.add(new InspectResult.WearIssue(i.kind(), s.id, at.kind.category(), round(i.confidence()), "model"));
                 }
             } catch (RuntimeException e) {
@@ -940,6 +1021,8 @@ public class ClothesInspectService {
         String id;
         /** 사진 전체(whole)일 때 옷 실수 확인에만 쓸 낮은 확신도 상의 박스. 없으면 null. */
         Slot wearHint;
+        /** GPT에게 묻기 전·묻는 동안 구한 옷 실수별 모델 확률(점점 덜 묻기). 안 구했으면 null. */
+        Map<String, Double> wearProbs;
 
         Slot(GarmentKind kind, InspectResult.Box box, Double confidence, boolean whole) {
             this.kind = kind;

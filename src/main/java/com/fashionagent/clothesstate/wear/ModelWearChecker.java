@@ -2,7 +2,9 @@ package com.fashionagent.clothesstate.wear;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
@@ -36,7 +38,8 @@ public class ModelWearChecker implements AutoCloseable {
                 props.enabled() ? new OnnxBinaryClassifier(loader.getResource(props.insideModel()), 320, 0, "뒤집힘") : null);
     }
 
-    ModelWearChecker(WearModelProperties props, OnnxBinaryClassifier tag, OnnxBinaryClassifier button,
+    /** 시험용(분류기를 직접 넣음). */
+    public ModelWearChecker(WearModelProperties props, OnnxBinaryClassifier tag, OnnxBinaryClassifier button,
             OnnxBinaryClassifier inside) {
         this.props = props;
         this.tag = tag;
@@ -63,26 +66,41 @@ public class ModelWearChecker implements AutoCloseable {
      * @return 기준을 넘은 실수(확신도는 모델 확률)
      */
     public List<WearChecker.Issue> check(BufferedImage img, double[] box, String category, String name, String view) {
+        return issues(probabilities(img, box, category, name, view));
+    }
+
+    /** probabilities 결과 중 기준을 넘은 것만 실수로(택은 tagProbability가 이미 기준을 적용해 0보다 크면). */
+    public List<WearChecker.Issue> issues(Map<String, Double> probs) {
         List<WearChecker.Issue> out = new ArrayList<>();
+        probs.forEach((kind, p) -> {
+            double t = switch (kind) {
+                case "buttons_misaligned" -> props.buttonThreshold();
+                case "inside_out" -> props.insideThreshold();
+                default -> Double.MIN_VALUE; // tag_out·backwards
+            };
+            if (p >= t && p > 0) {
+                out.add(new WearChecker.Issue(kind, p, props.version()));
+            }
+        });
+        return out;
+    }
+
+    /**
+     * 이 옷에 볼 수 있는 실수마다 모델 확률(기준 적용 전, 택만 창 찾기 기준 적용). 볼 수 없는 실수는 넣지 않음.
+     * GPT 답과 견줘 "모델을 믿어도 되는지"(WearTrust)를 재는 데도 씀.
+     */
+    public Map<String, Double> probabilities(BufferedImage img, double[] box, String category, String name, String view) {
+        Map<String, Double> out = new LinkedHashMap<>();
         double x = box[0], y = box[1], w = box[2], h = box[3];
         boolean back = "back".equals(view);
         if (ok(tag) && NECK.contains(category)) {
-            double p = tagProbability(img, x, y, w, h);
-            if (p > 0) {
-                out.add(new WearChecker.Issue(back ? "tag_out" : "backwards", p, props.version()));
-            }
+            out.put(back ? "tag_out" : "backwards", tagProbability(img, x, y, w, h));
         }
         if (ok(button) && !back && BUTTONED.contains(name)) {
-            double p = button.probabilitySquare(img, x, y, w, h, 0.05);
-            if (p >= props.buttonThreshold()) {
-                out.add(new WearChecker.Issue("buttons_misaligned", p, props.version()));
-            }
+            out.put("buttons_misaligned", button.probabilitySquare(img, x, y, w, h, 0.05));
         }
         if (ok(inside) && INSIDE.contains(name)) {
-            double p = inside.probabilitySquare(img, x, y, w, h, 0.05);
-            if (p >= props.insideThreshold()) {
-                out.add(new WearChecker.Issue("inside_out", p, props.version()));
-            }
+            out.put("inside_out", inside.probabilitySquare(img, x, y, w, h, 0.05));
         }
         return out;
     }

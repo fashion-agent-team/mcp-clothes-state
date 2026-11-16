@@ -17,7 +17,7 @@ public record WearModelProperties(
         @DefaultValue("classpath:models/yolo26n_wear_button.onnx") String buttonModel,
         /** 안팎 뒤집힘(솔기 시접·비친 프린트). */
         @DefaultValue("classpath:models/yolo26n_wear_inside.onnx") String insideModel,
-        @DefaultValue("yolo26n-wear3") String version,
+        @DefaultValue("yolo26n-wear4") String version,
         @DefaultValue("0.8") double tagThreshold,
         @DefaultValue("0.8") double buttonThreshold,
         /** 2차(in2) 합성 검증: 0.7에서 90.0% / 오탐 1.9%, 0.8에서 88.1% / 1.1%. */

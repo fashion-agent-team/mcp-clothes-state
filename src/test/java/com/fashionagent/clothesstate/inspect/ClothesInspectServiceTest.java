@@ -461,7 +461,7 @@ class ClothesInspectServiceTest {
                  {"name":"jacket","vector":[0.7,0.7,0]},{"name":"none","vector":[0,0,1]}]}""";
         return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
                 new org.springframework.core.io.ByteArrayResource(json.getBytes()),
-                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005));
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, ""));
     }
 
     @Test
@@ -537,7 +537,7 @@ class ClothesInspectServiceTest {
                  {"name":"none","vector":[0,0,1]}]}""";
         return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
                 new org.springframework.core.io.ByteArrayResource(json.getBytes()),
-                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005));
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, ""));
     }
 
     @Test
@@ -563,6 +563,29 @@ class ClothesInspectServiceTest {
         garments.next = List.of(new Detection("dress", 0.6, 0.2, 0.1, 0.5, 0.8));
         var g = service.inspect(photo, "worn", "front").garments().getFirst();
         assertThat(g.category()).isEqualTo("top");
+    }
+
+    @Test
+    @DisplayName("종류 벡터 파일이 있으면 종류는 그 파일로 고르고, 옷 아님 판단은 글 벡터로 한다")
+    void kindVectorsPickKindOnly() {
+        String text = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"none","vector":[0,0,1]}]}""";
+        // 종류 벡터: shirt·dress가 뒤바뀌고 none이 아주 큼(쓰이면 옷이 빠짐)
+        String kind = """
+                {"prompts":[{"name":"shirt","vector":[0,1,0]},{"name":"dress","vector":[1,0,0]},
+                 {"name":"none","vector":[5,5,5]}]}""";
+        embedder.ready = true;
+        embedder.textCheck = new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(text.getBytes()),
+                new org.springframework.core.io.ByteArrayResource(kind.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, "y"));
+        embedder.vectors = List.of(new float[] {0.99f, 0.1f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("skirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+        var gs = service.inspect(photo, "worn", "front").garments();
+        assertThat(gs).hasSize(1);
+        assertThat(gs.getFirst().category()).isEqualTo("dress");
     }
 
     private ClothesInspectService wearService(com.fashionagent.clothesstate.FakeWearChecker wear) {

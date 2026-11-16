@@ -31,7 +31,10 @@ public class DetectorConfig {
     OnnxGarmentEmbedder garmentEmbedder(EmbedProperties props,
             com.fashionagent.clothesstate.embed.TextCheckProperties text, ResourceLoader loader) {
         var check = text.vectors() == null || text.vectors().isBlank() ? null
-                : new com.fashionagent.clothesstate.embed.GarmentTextCheck(loader.getResource(text.vectors()), text);
+                : new com.fashionagent.clothesstate.embed.GarmentTextCheck(loader.getResource(text.vectors()),
+                        text.kindVectors() == null || text.kindVectors().isBlank() ? null
+                                : loader.getResource(text.kindVectors()),
+                        text);
         return new OnnxGarmentEmbedder(props, check);
     }
 

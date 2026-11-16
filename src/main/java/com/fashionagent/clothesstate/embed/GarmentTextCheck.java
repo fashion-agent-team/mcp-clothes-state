@@ -27,14 +27,30 @@ public class GarmentTextCheck {
 
     private final List<String> names = new ArrayList<>();
     private final List<float[]> vectors = new ArrayList<>();
+    /** 종류 다시 고르기에만 쓰는 벡터(학습한 probe 등). 비면 위 글 벡터를 씀. "옷 아님" 판단은 늘 위 글 벡터. */
+    private final List<String> kindNames = new ArrayList<>();
+    private final List<float[]> kindVectors = new ArrayList<>();
     private final TextCheckProperties props;
 
     public GarmentTextCheck(Resource file, TextCheckProperties props) {
+        this(file, null, props);
+    }
+
+    public GarmentTextCheck(Resource file, Resource kindFile, TextCheckProperties props) {
         this.props = props;
         if (file == null || !file.exists()) {
             log.warn("옷 이름 글 벡터 파일이 없어요. 글 벡터 확인 없이 응답해요.");
             return;
         }
+        if (load(file, names, vectors)) {
+            log.info("옷 이름 글 벡터 {}개를 읽었어요.", names.size());
+        }
+        if (kindFile != null && kindFile.exists() && load(kindFile, kindNames, kindVectors)) {
+            log.info("옷 종류 다시 고르기 벡터 {}개를 읽었어요.", kindNames.size());
+        }
+    }
+
+    private static boolean load(Resource file, List<String> names, List<float[]> vectors) {
         try (InputStream in = file.getInputStream()) {
             JsonNode root = JsonMapper.builder().build().readTree(in);
             for (JsonNode p : root.path("prompts")) {
@@ -46,11 +62,12 @@ public class GarmentTextCheck {
                 names.add(p.path("name").asString());
                 vectors.add(f);
             }
-            log.info("옷 이름 글 벡터 {}개를 읽었어요.", names.size());
+            return !vectors.isEmpty();
         } catch (IOException | RuntimeException e) {
-            log.warn("옷 이름 글 벡터를 읽지 못했어요: {}", e.toString());
+            log.warn("벡터 파일을 읽지 못했어요({}): {}", file.getDescription(), e.toString());
             names.clear();
             vectors.clear();
+            return false;
         }
     }
 
@@ -64,6 +81,21 @@ public class GarmentTextCheck {
 
     /** 이름마다 가장 높은 코사인(문장 여러 개 중 최대). 벡터 길이가 다르면 빈 맵. */
     public Map<String, Double> scores(float[] image) {
+        return scores(image, names, vectors);
+    }
+
+    /** 종류 다시 고르기용 점수. 따로 준 종류 벡터가 있으면 그것, 없거나 길이가 다르면 글 벡터. */
+    public Map<String, Double> kindScores(float[] image) {
+        if (!kindVectors.isEmpty()) {
+            Map<String, Double> k = scores(image, kindNames, kindVectors);
+            if (!k.isEmpty()) {
+                return k;
+            }
+        }
+        return scores(image);
+    }
+
+    private static Map<String, Double> scores(float[] image, List<String> names, List<float[]> vectors) {
         Map<String, Double> out = new LinkedHashMap<>();
         if (image == null) {
             return out;

@@ -4,7 +4,7 @@ import sys, json, os, numpy as np, torch
 from train_probe import CLASSES, load, text_matrix, predict, accuracy
 text_json, out_json = sys.argv[1], sys.argv[2]
 names, M0 = text_matrix(text_json); names = list(names)
-V, L, S, R = load(["srv_fp_train.npz", "srv_cc0.npz", "walls.npz"]); EV, EL, ES, ER = load(["srv_fp_val.npz"])
+V, L, S, R = load(["srv_fp_train.npz", "srv_cc0.npz", "walls.npz"] + os.environ.get("EXTRA", "").split() ); EV, EL, ES, ER = load(["srv_fp_val.npz"])
 m = (S == "train") & np.isin(L, CLASSES)
 X, Y = V[m], np.array([CLASSES.index(l) for l in L[m]])
 rng = np.random.default_rng(0); hold = rng.random(len(X)) < 0.2

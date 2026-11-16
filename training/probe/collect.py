@@ -5,7 +5,7 @@ import sys, os, io, json, random, base64, time, threading, urllib.request, csv, 
 from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_lists import FP, CC0
-URL = "http://100.65.166.69:8093/mcp"
+URL = os.environ.get("CS_URL", "http://100.65.166.69:8093/mcp")
 loc = threading.local()
 def rpc(body, sid=None):
     h = {"content-type": "application/json", "accept": "application/json, text/event-stream"}
@@ -55,7 +55,7 @@ def run(jobs, out, mode):
                 label = lab if best >= 0.3 else ("none" if best < 0.1 else None)
             if label is None or label == "skip": continue
             rows.append({"img": path, "box": bx, "label": label, "iou": round(best, 3), "split": split, "src": "fp-server" if mode == "worn" else "cc0-server",
-                         "serverCat": g.get("category"), "serverName": g.get("name"), "v": g["embedding"]})
+                         "serverCat": g.get("category"), "conf": g.get("confidence"), "serverName": g.get("name"), "v": g["embedding"]})
         if not rows: rows = [{"img": path, "empty": True}]
         with lock:
             for r in rows: f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -73,6 +73,10 @@ if __name__ == "__main__":
             im = imgs[a["image_id"]]; x, y, w, h = a["bbox"]
             by.setdefault(a["image_id"], []).append(([x/im["width"], y/im["height"], w/im["width"], h/im["height"]], FP.get(cats[a["category_id"]], "skip")))
         ids = [i for i in by if any(l != "skip" for _, l in by[i])]; random.shuffle(ids)
+        rare = os.environ.get("RARE")
+        if rare:
+            rs = set(rare.split(",")); ids = [i for i in ids if any(l in rs for _, l in by[i])]
+            print("rare images", len(ids), flush=True)
         run([(os.path.join(img_dir, imgs[i]["file_name"]), by[i], split) for i in ids[:int(n)]], out, "worn")
     else:
         root, n, out = sys.argv[2:5]; jobs = []

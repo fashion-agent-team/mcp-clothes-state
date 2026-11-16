@@ -461,7 +461,7 @@ class ClothesInspectServiceTest {
                  {"name":"jacket","vector":[0.7,0.7,0]},{"name":"none","vector":[0,0,1]}]}""";
         return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
                 new org.springframework.core.io.ByteArrayResource(json.getBytes()),
-                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9));
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005));
     }
 
     @Test
@@ -528,6 +528,41 @@ class ClothesInspectServiceTest {
                 GarmentKind.of("outer_unsure"), new InspectResult.Box(0.1, 0.1, 0.5, 0.5), 0.5, false)));
         service.textCheck(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), slots, "laid");
         assertThat(slots.getFirst().kind.name()).isEqualTo("겉옷");
+    }
+
+    /** 셔츠·원피스·none만 있는 글 벡터(가산점 시험용). */
+    private com.fashionagent.clothesstate.embed.GarmentTextCheck shirtDressCheck() {
+        String json = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"none","vector":[0,0,1]}]}""";
+        return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(json.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005));
+    }
+
+    @Test
+    @DisplayName("글 벡터 1·2등이 아주 가까우면 모델이 고른 큰 분류(원피스)를 따른다")
+    void closeTextScoresFavorModel() {
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        // shirt 0.70, dress 0.69: 차이 0.01 < 가산점 0.01 + 0.6×0.005
+        embedder.vectors = List.of(new float[] {0.70f, 0.69f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("dress", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("dress");
+    }
+
+    @Test
+    @DisplayName("글 벡터가 다른 종류를 뚜렷이 고르면 가산점이 있어도 글 벡터를 따른다")
+    void clearTextScoresStillWin() {
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        embedder.vectors = List.of(new float[] {0.80f, 0.60f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("dress", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("top");
     }
 
     private ClothesInspectService wearService(com.fashionagent.clothesstate.FakeWearChecker wear) {

@@ -894,7 +894,9 @@ public class ClothesInspectService {
                 continue;
             }
             boolean unsure = s.whole || s.confidence == null || s.confidence < keep;
-            String pick = unsure && !s.whole ? favorModel(check.scores(s.embedding), s, p) : r.name();
+            String pick = !unsure ? r.name()
+                    : s.whole ? favorModel(check.kindScores(s.embedding), s, p, 0)
+                    : favorModel(check.kindScores(s.embedding), s, p);
             // 코트·재킷이 애매해 "겉옷"이라고 한 것은 글 벡터도 둘을 잘 못 가려서 그대로 둠
             boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(pick) || "coat".equals(pick));
             if (unsure && pick != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
@@ -914,8 +916,13 @@ public class ClothesInspectService {
      * 근거: docs/training-log.md "글 벡터 다시 보기에 모델 쪽 가산점"(2026-11-16).
      */
     static String favorModel(java.util.Map<String, Double> scores, Slot s, com.fashionagent.clothesstate.embed.TextCheckProperties p) {
+        return favorModel(scores, s, p,
+                p.modelBonus() + (s.confidence == null ? 0 : s.confidence) * p.modelBonusPerConfidence());
+    }
+
+    static String favorModel(java.util.Map<String, Double> scores, Slot s,
+            com.fashionagent.clothesstate.embed.TextCheckProperties p, double bonus) {
         String cat = s.kind.category();
-        double bonus = p.modelBonus() + (s.confidence == null ? 0 : s.confidence) * p.modelBonusPerConfidence();
         String best = null;
         double bestScore = Double.NEGATIVE_INFINITY;
         for (var e : scores.entrySet()) {

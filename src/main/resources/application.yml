@@ -50,9 +50,11 @@ clothes:
     none-margin: 0.03
     keep-laid: 0.7
     keep-worn: 0.9
-    # 다시 고를 때 모델이 고른 큰 분류에 주는 가산점(0.01 + 확신도×0.005). 근거 docs/training-log.md 2026-11-16
-    model-bonus: ${CLOTHES_TEXT_MODEL_BONUS:0.01}
-    model-bonus-per-confidence: ${CLOTHES_TEXT_MODEL_BONUS_PER_CONF:0.005}
+    # 다시 고를 때 모델이 고른 큰 분류에 주는 가산점. 글 벡터만 쓸 때는 0.01 / 0.005가 좋고(#30), probe_v4를 쓰면 0이 가장 좋음. 근거 docs/training-log.md 2026-11-16
+    model-bonus: ${CLOTHES_TEXT_MODEL_BONUS:0}
+    model-bonus-per-confidence: ${CLOTHES_TEXT_MODEL_BONUS_PER_CONF:0}
+    # 종류 다시 고르기에만 쓰는 학습 벡터(probe_v4, DeepFashion2 포함 학습: 학교 프로젝트 전용). 비우면 위 글 벡터.
+    kind-vectors: ${CLOTHES_KIND_VECTORS:classpath:models/garment-kind-probe-v4.json}
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

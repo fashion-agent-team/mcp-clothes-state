@@ -23,5 +23,10 @@ public record TextCheckProperties(
          */
         @DefaultValue("0.01") double modelBonus,
         /** 위 값에 더해, 모델 확신도 × 이 값만큼 더 줌. */
-        @DefaultValue("0.005") double modelBonusPerConfidence) {
+        @DefaultValue("0.005") double modelBonusPerConfidence,
+        /**
+         * 종류 다시 고르기에만 쓰는 벡터 파일(학습한 probe, 형식은 vectors와 같음). 비우면 vectors를 씀.
+         * "옷 아님"(none) 판단은 늘 vectors로 함(probe의 none은 기준값이 달라서).
+         */
+        @DefaultValue("") String kindVectors) {
 }

@@ -45,9 +45,9 @@ public class OnnxGarmentEmbedder implements GarmentEmbedder, AutoCloseable {
         String path = props.model() == null ? "" : props.model().strip();
         if (!path.isEmpty() && Files.isRegularFile(Path.of(path))) {
             try {
-                e = OrtEnvironment.getEnvironment();
+                e = com.fashionagent.clothesstate.OrtSupport.env();
                 // 372MB라 byte[]로 읽지 않고 경로로 엶
-                s = e.createSession(path, new OrtSession.SessionOptions());
+                s = e.createSession(path, com.fashionagent.clothesstate.OrtSupport.options());
                 in = s.getInputNames().iterator().next();
                 long[] shape = ((TensorInfo) s.getInputInfo().get(in).getInfo()).getShape();
                 dyn = shape.length == 4 && shape[0] < 0;

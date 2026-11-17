@@ -40,8 +40,8 @@ public class ColorModel implements AutoCloseable {
         if (model != null && model.exists()) {
             try (InputStream is = model.getInputStream()) {
                 byte[] bytes = is.readAllBytes();
-                e = OrtEnvironment.getEnvironment();
-                s = e.createSession(bytes, new OrtSession.SessionOptions());
+                e = com.fashionagent.clothesstate.OrtSupport.env();
+                s = e.createSession(bytes, com.fashionagent.clothesstate.OrtSupport.options());
                 in = s.getInputNames().iterator().next();
                 log.info("색 인식 모델을 읽었어요: {} ({} bytes)", model.getDescription(), bytes.length);
             } catch (IOException | OrtException ex) {

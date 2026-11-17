@@ -48,8 +48,8 @@ public class OnnxPatternClassifier implements PatternClassifier, AutoCloseable {
         String in = null;
         if (model != null && model.exists()) {
             try (InputStream is = model.getInputStream()) {
-                e = OrtEnvironment.getEnvironment();
-                s = e.createSession(is.readAllBytes(), new OrtSession.SessionOptions());
+                e = com.fashionagent.clothesstate.OrtSupport.env();
+                s = e.createSession(is.readAllBytes(), com.fashionagent.clothesstate.OrtSupport.options());
                 in = s.getInputNames().iterator().next();
                 log.info("무늬 모델을 읽었어요: {} ({}종)", model.getDescription(), classes.size());
             } catch (IOException | OrtException ex) {
@@ -67,7 +67,7 @@ public class OnnxPatternClassifier implements PatternClassifier, AutoCloseable {
         boolean hasPath = loraPath != null && !loraPath.isBlank();
         if (s != null && hasPath && java.nio.file.Files.isRegularFile(java.nio.file.Path.of(loraPath))) {
             try {
-                l = e.createSession(loraPath, new OrtSession.SessionOptions());
+                l = e.createSession(loraPath, com.fashionagent.clothesstate.OrtSupport.options());
                 li = l.getInputNames().iterator().next();
                 log.info("무늬 LoRA 모델도 읽었어요: {} (섞기 {} : {}, 기준 {})", loraPath,
                         props.loraWeight(), 1 - props.loraWeight(), props.loraSureThreshold());

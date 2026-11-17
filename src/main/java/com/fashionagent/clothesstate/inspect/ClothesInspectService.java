@@ -146,6 +146,14 @@ public class ClothesInspectService {
                 wearModel, trust);
     }
 
+    /** 애매한 옷만 So400m으로 다시 고르는 보조 경로. 설정(clothes.so400m.url)이 없으면 꺼진 것. */
+    private com.fashionagent.clothesstate.embed.So400mAssist assist = com.fashionagent.clothesstate.embed.So400mAssist.OFF;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAssist(com.fashionagent.clothesstate.embed.So400mAssist assist) {
+        this.assist = assist == null ? com.fashionagent.clothesstate.embed.So400mAssist.OFF : assist;
+    }
+
     static final WearCheckProperties DEFAULT_WEAR = new WearCheckProperties(true, "", java.time.Duration.ofSeconds(3),
             768, 0.7, 0.25, 0.12, 3);
 
@@ -900,6 +908,8 @@ public class ClothesInspectService {
         var p = check.props();
         double keep = "worn".equals(mode) ? p.keepWorn() : p.keepLaid();
         int changed = 0;
+        List<Slot> askSlots = new ArrayList<>();
+        List<double[]> askBoxes = new ArrayList<>();
         for (var it = slots.iterator(); it.hasNext();) {
             Slot s = it.next();
             s.embedding = embed(img, s.box);
@@ -912,20 +922,52 @@ public class ClothesInspectService {
                 continue;
             }
             boolean unsure = s.whole || s.confidence == null || s.confidence < keep;
+            java.util.Map<String, Double> kind = unsure ? check.kindScores(s.embedding) : null;
             String pick = !unsure ? r.name()
-                    : s.whole ? favorModel(check.kindScores(s.embedding), s, p, 0)
-                    : favorModel(check.kindScores(s.embedding), s, p);
-            // 코트·재킷이 애매해 "겉옷"이라고 한 것은 글 벡터도 둘을 잘 못 가려서 그대로 둠
-            boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(pick) || "coat".equals(pick));
-            if (unsure && pick != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
-                GarmentKind k = GarmentKind.of(pick);
-                if (!k.name().equals(s.kind.name())) {
-                    s.kind = k;
-                    changed++;
-                }
+                    : s.whole ? favorModel(kind, s, p, 0)
+                    : favorModel(kind, s, p);
+            // 아주 애매한 옷은 더 큰 모델(So400m)에게 다시 물음(켜져 있을 때만, 아래에서 한꺼번에)
+            if (unsure && !s.whole && !"shoes".equals(s.kind.category()) && askBoxes.size() < assistMax()
+                    && assist.wanted(s.confidence, kind)) {
+                askSlots.add(s);
+                askBoxes.add(new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()});
+                s.pendingPick = pick;
+                continue;
             }
+            changed += applyPick(s, pick, unsure);
+        }
+        if (!askSlots.isEmpty()) {
+            long t = System.nanoTime();
+            List<String> picks = assist.pick(img, askBoxes);
+            int got = 0;
+            for (int i = 0; i < askSlots.size(); i++) {
+                Slot s = askSlots.get(i);
+                String big = picks.get(i);
+                got += big == null ? 0 : 1;
+                changed += applyPick(s, big != null ? big : s.pendingPick, true);
+                s.pendingPick = null;
+            }
+            log.info("So400m 다시 묻기 {}벌 중 {}벌 답, {}ms", askSlots.size(), got, ms(t, System.nanoTime()));
         }
         return changed;
+    }
+
+    private int assistMax() {
+        return assist.enabled() ? assist.props().maxBoxes() : 0;
+    }
+
+    /** 고른 이름으로 종류를 바꿈(애매할 때만, 겉옷 애매·신발은 그대로). 바꿨으면 1. */
+    private static int applyPick(Slot s, String pick, boolean unsure) {
+        // 코트·재킷이 애매해 "겉옷"이라고 한 것은 글 벡터도 둘을 잘 못 가려서 그대로 둠
+        boolean outerUnsure = "겉옷".equals(s.kind.name()) && ("jacket".equals(pick) || "coat".equals(pick));
+        if (unsure && pick != null && !outerUnsure && !"shoes".equals(s.kind.category())) {
+            GarmentKind k = GarmentKind.of(pick);
+            if (!k.name().equals(s.kind.name())) {
+                s.kind = k;
+                return 1;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -1075,6 +1117,8 @@ public class ClothesInspectService {
         GarmentKind kind;
         /** textCheck에서 미리 만든 옷 벡터(응답에 다시 씀). */
         float[] embedding;
+        /** So400m에게 다시 묻는 동안 쓸 지금 결과(답이 없으면 이걸 씀). */
+        String pendingPick;
         final InspectResult.Box box;
         final Double confidence;
         final boolean whole;

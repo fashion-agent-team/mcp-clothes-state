@@ -37,8 +37,8 @@ public class OnnxBinaryClassifier implements AutoCloseable {
         String in = null;
         if (model != null && model.exists()) {
             try (InputStream is = model.getInputStream()) {
-                e = OrtEnvironment.getEnvironment();
-                s = e.createSession(is.readAllBytes(), new OrtSession.SessionOptions());
+                e = com.fashionagent.clothesstate.OrtSupport.env();
+                s = e.createSession(is.readAllBytes(), com.fashionagent.clothesstate.OrtSupport.options());
                 in = s.getInputNames().iterator().next();
                 log.info("옷 실수 모델({})을 읽었어요: {}", what, model.getDescription());
             } catch (IOException | OrtException ex) {

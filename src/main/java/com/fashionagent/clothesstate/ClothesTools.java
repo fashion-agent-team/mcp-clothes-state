@@ -32,7 +32,7 @@ public class ClothesTools {
             옷 사진 한 장에서 옷 한 벌마다 종류(category: top, bottom, outer, dress, shoes, other)와 색(colorName), \
             무늬(pattern: plain, stripe, check, floral, dot, graphic, animal, other, 모르면 null), \
             얼룩(stain)과 찢어짐·구멍(tear)을 찾습니다(우리가 학습한 모델을 이 서버에서 돌림). 애매한 결함과 무늬를 모르는 옷은 \
-            allowGpt=true(사용자 동의)일 때만 서버가 그 부분(무늬는 내려놓은 사진만)을 GPT에게 물어 확인하고, 찍은 사진 전체는 \
+            allowGpt=true(사용자 동의)일 때만 서버가 그 부분(결함 조각, 무늬를 모르는 옷 박스)을 GPT에게 물어 확인하고, 찍은 사진 전체는 \
             외부로 보내지 않습니다. patternCheckedBy가 gpt면 무늬도 조금 약하게 말합니다. 옷 추천 2단계에서 앱이 보낸 사진마다 \
             부르세요. garments[].defects는 바로 알립니다(checkedBy가 gpt면 "~인 것 같아요"처럼 조금 약하게). \
             pendingHelper가 있으면 확인하지 못한 것이니 "확실하지 않은 부분이 있어요"라고만 말합니다. \

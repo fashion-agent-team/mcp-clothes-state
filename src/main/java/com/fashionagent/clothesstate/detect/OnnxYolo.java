@@ -54,8 +54,8 @@ public class OnnxYolo implements AutoCloseable {
         if (model != null && model.exists()) {
             try (InputStream is = model.getInputStream()) {
                 byte[] bytes = is.readAllBytes();
-                e = OrtEnvironment.getEnvironment();
-                s = e.createSession(bytes, new OrtSession.SessionOptions());
+                e = com.fashionagent.clothesstate.OrtSupport.env();
+                s = e.createSession(bytes, com.fashionagent.clothesstate.OrtSupport.options());
                 in = s.getInputNames().iterator().next();
                 long[] shape = ((TensorInfo) s.getInputInfo().get(in).getInfo()).getShape();
                 dynamic = shape.length == 4 && (shape[2] < 0 || shape[3] < 0);

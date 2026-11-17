@@ -28,6 +28,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 무늬 모델이 "모름"이라고 한 옷을 OpenAI Chat Completions(그림 입력)로 묻습니다(정지원 2026-11-11). 키·모델·시간은
  * 얼룩 확인과 같은 clothes.gpt.*를 씁니다. 옷 박스만 긴 변 512로 줄여 보냅니다(줄이기는 부르는 쪽에서).
+ * 무늬 두 모델을 섞어 쓸 때는 긴 변 768(작으면 그대로) + detail high로 보냅니다(2026-11-17, 입은 옷 조각에서 GPT 정답률
+ * 34% → 38%, docs/training-log.md).
  */
 @Component
 public class OpenAiPatternVerifier implements PatternVerifier {
@@ -42,6 +44,7 @@ public class OpenAiPatternVerifier implements PatternVerifier {
             + "other print: abstract, geometric, paisley, camouflage). Answer only JSON: {\"pattern\": \"<one of the "
             + "words>\", \"confidence\": 0.0-1.0}";
     public static final int MAX_SIDE = 512;
+    public static final int MAX_SIDE_HIGH = 768;
 
     private final GptCheckProperties props;
     private final HttpClient http;
@@ -59,11 +62,16 @@ public class OpenAiPatternVerifier implements PatternVerifier {
 
     @Override
     public Answer ask(BufferedImage garment) {
+        return ask(garment, false);
+    }
+
+    @Override
+    public Answer ask(BufferedImage garment, boolean high) {
         if (!ready()) {
             return null;
         }
         try {
-            String body = json.writeValueAsString(request(jpegBase64(garment)));
+            String body = json.writeValueAsString(request(jpegBase64(garment), high ? "high" : "low"));
             HttpRequest req = HttpRequest.newBuilder(URI.create(props.baseUrl() + "/chat/completions"))
                     .timeout(props.timeout())
                     .header("Authorization", "Bearer " + props.apiKey())
@@ -86,6 +94,10 @@ public class OpenAiPatternVerifier implements PatternVerifier {
     }
 
     Map<String, Object> request(String jpegBase64) {
+        return request(jpegBase64, "low");
+    }
+
+    Map<String, Object> request(String jpegBase64, String detail) {
         return Map.of(
                 "model", props.model(),
                 "max_completion_tokens", 60,
@@ -93,7 +105,7 @@ public class OpenAiPatternVerifier implements PatternVerifier {
                 "messages", List.of(Map.of("role", "user", "content", List.of(
                         Map.of("type", "text", "text", PROMPT),
                         Map.of("type", "image_url", "image_url",
-                                Map.of("url", "data:image/jpeg;base64," + jpegBase64, "detail", "low"))))));
+                                Map.of("url", "data:image/jpeg;base64," + jpegBase64, "detail", detail))))));
     }
 
     /** 응답 JSON → 답. 모양이 다르거나 목록에 없는 이름이면 null. */

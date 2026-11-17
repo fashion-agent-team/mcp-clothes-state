@@ -34,6 +34,45 @@ class OnnxPatternClassifierTest {
     }
 
     @Test
+    @DisplayName("두 모델 섞기: w × LoRA + (1 - w) × YOLO, 1~3등 순서")
+    void mixAndRanked() {
+        float[] lora = probs(7, 0.5f);   // stripe 0.5
+        float[] yolo = probs(1, 0.9f);   // check 0.9
+        float[] m = OnnxPatternClassifier.mix(lora, yolo, 0.7);
+        assertThat(m[7]).isCloseTo(0.7f * 0.5f + 0.3f * (0.1f / 7), org.assertj.core.data.Offset.offset(1e-6f));
+        assertThat(m[1]).isCloseTo(0.7f * (0.5f / 7) + 0.3f * 0.9f, org.assertj.core.data.Offset.offset(1e-6f));
+        var r = OnnxPatternClassifier.decide(m, CLASSES, 0.6);
+        assertThat(r.top()).isEqualTo("stripe");
+        assertThat(r.pattern()).isNull(); // 0.35 < 0.6 → 모름
+        assertThat(r.ranked()).containsExactly("stripe", "check", r.ranked().get(2));
+        assertThat(r.ranked()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("BICUBIC 가중치: 합이 1, 같은 크기면 원본 그대로, 줄이면 음수 꼬리가 있음(PIL과 같은 필터)")
+    void bicubicWeights() {
+        var same = PatternInput.weights(10, 10, true);
+        for (double[] k : same.k()) {
+            assertThat(java.util.Arrays.stream(k).sum()).isCloseTo(1.0, org.assertj.core.data.Offset.offset(1e-9));
+        }
+        assertThat(PatternInput.cubic(0)).isEqualTo(1.0);
+        assertThat(PatternInput.cubic(1)).isEqualTo(0.0);
+        assertThat(PatternInput.cubic(1.5)).isLessThan(0.0);
+        var down = PatternInput.weights(448, 224, true);
+        assertThat(down.k()[100]).hasSize(8); // support 2 × 축소 비율 2 → 양쪽 4픽셀
+        assertThat(java.util.Arrays.stream(down.k()[100]).min().orElseThrow()).isLessThan(0.0);
+    }
+
+    @Test
+    @DisplayName("LoRA 파일 경로가 없으면 YOLO 하나만(섞지 않음)")
+    void noLoraFile() {
+        var props = new PatternProperties("none", "v", CLASSES, 224, 0.08, 0.6);
+        var c = new OnnxPatternClassifier(null, "/no/such/file.onnx", props);
+        assertThat(c.mixed()).isFalse();
+        assertThat(c.version()).isEqualTo("v");
+    }
+
+    @Test
     @DisplayName("모델 파일이 없거나 깨졌으면 준비 안 됨")
     void noModel() {
         var props = new PatternProperties("none", "v", CLASSES, 224, 0.08, 0.6);

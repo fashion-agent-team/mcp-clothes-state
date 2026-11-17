@@ -5,6 +5,7 @@ import java.awt.image.BufferedImage;
 /**
  * 무늬 모델 입력 만들기. 학습·평가(Ultralytics classify)와 같게 합니다: 옷 박스를 사방 margin만큼 넓혀 자르고(사진 안),
  * 짧은 변을 size로 줄인 뒤(PIL BILINEAR, 줄이는 비율만큼 필터를 넓힘) 가운데를 size×size로 자르고, x/255 RGB CHW.
+ * FashionSigLIP LoRA 무늬 모델은 학습 때 torchvision Resize(BICUBIC)를 썼으므로 bicubic=true(PIL BICUBIC, a=-0.5)로 만듭니다.
  */
 public final class PatternInput {
 
@@ -12,6 +13,11 @@ public final class PatternInput {
     }
 
     public static float[] prepare(BufferedImage img, double x, double y, double w, double h, double margin, int size) {
+        return prepare(img, x, y, w, h, margin, size, false);
+    }
+
+    public static float[] prepare(BufferedImage img, double x, double y, double w, double h, double margin, int size,
+            boolean bicubic) {
         int iw = img.getWidth();
         int ih = img.getHeight();
         double bw = w * iw;
@@ -39,13 +45,14 @@ public final class PatternInput {
             planes[1][i] = (px[i] >> 8) & 0xFF;
             planes[2][i] = px[i] & 0xFF;
         }
-        // torchvision CenterCrop: 위·왼쪽 = round((크기 - size) / 2)
-        int top = (int) Math.round((nh - size) / 2.0);
-        int left = (int) Math.round((nw - size) / 2.0);
+        // torchvision CenterCrop: 위·왼쪽 = round((크기 - size) / 2). 파이썬 round는 .5를 짝수 쪽으로 보내서(72.5 → 72)
+        // LoRA 쪽(bicubic)은 Math.rint로 맞춤. YOLO 쪽은 예전 그대로(이 방식으로 parity 60/60 확인한 값을 바꾸지 않음).
+        int top = (int) (bicubic ? Math.rint((nh - size) / 2.0) : Math.round((nh - size) / 2.0));
+        int left = (int) (bicubic ? Math.rint((nw - size) / 2.0) : Math.round((nw - size) / 2.0));
         int plane = size * size;
         float[] chw = new float[3 * plane];
-        Weights wx = weights(cw, nw);
-        Weights wy = weights(ch, nh);
+        Weights wx = weights(cw, nw, bicubic);
+        Weights wy = weights(ch, nh, bicubic);
         for (int c = 0; c < 3; c++) {
             int[] resized = resize(planes[c], cw, ch, nw, nh, wx, wy);
             for (int r = 0; r < size; r++) {
@@ -89,11 +96,15 @@ public final class PatternInput {
     record Weights(int[] start, double[][] k) {
     }
 
-    /** PIL precompute_coeffs, BILINEAR(삼각형 필터, support 1). */
     static Weights weights(int in, int out) {
+        return weights(in, out, false);
+    }
+
+    /** PIL precompute_coeffs. BILINEAR(삼각형 필터, support 1) 또는 BICUBIC(a=-0.5, support 2). */
+    static Weights weights(int in, int out, boolean bicubic) {
         double scale = (double) in / out;
         double filterScale = Math.max(1.0, scale);
-        double support = filterScale;
+        double support = (bicubic ? 2.0 : 1.0) * filterScale;
         int[] start = new int[out];
         double[][] k = new double[out][];
         for (int o = 0; o < out; o++) {
@@ -104,7 +115,7 @@ public final class PatternInput {
             double sum = 0;
             for (int i = 0; i < wt.length; i++) {
                 double t = Math.abs((i + xmin - center + 0.5) / filterScale);
-                wt[i] = t < 1 ? 1 - t : 0;
+                wt[i] = bicubic ? cubic(t) : (t < 1 ? 1 - t : 0);
                 sum += wt[i];
             }
             if (sum != 0) {
@@ -116,6 +127,18 @@ public final class PatternInput {
             k[o] = wt;
         }
         return new Weights(start, k);
+    }
+
+    /** PIL bicubic_filter, a = -0.5. */
+    static double cubic(double x) {
+        double a = -0.5;
+        if (x < 1.0) {
+            return ((a + 2.0) * x - (a + 3.0)) * x * x + 1;
+        }
+        if (x < 2.0) {
+            return (((x - 5) * x + 8) * x - 4) * a;
+        }
+        return 0.0;
     }
 
     private static int clip8(double v) {

@@ -393,6 +393,41 @@ class ClothesInspectServiceTest {
     }
 
     @Test
+    @DisplayName("무늬 두 모델 섞기: 기준 이상 무늬는 0.9 미만이어도 모델 답, 모름이면 입은 사진도 GPT(high)에 묻고 3등 안일 때만 받음")
+    void patternMixedGpt() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        pattern.ready = true;
+        pattern.mixed = true;
+        patternGpt.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        // 섞은 확률이 기준(0.6) 이상인 무늬: 0.65여도 이름 그대로, GPT에 묻지 않음(YOLO 하나일 때의 0.9 규칙 안 씀)
+        pattern.answer = "stripe";
+        pattern.confidence = 0.65;
+        var g0 = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g0.pattern()).isEqualTo("stripe");
+        assertThat(g0.patternCheckedBy()).isEqualTo("model");
+        assertThat(patternGpt.calls).isZero();
+        // 모름 + 입은 사진 + 동의 → GPT에 high로 물음, 답(check)이 3등 안이라 받음
+        pattern.answer = null;
+        pattern.ranked = List.of("dot", "stripe", "check");
+        var g = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g.pattern()).isEqualTo("check");
+        assertThat(g.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        assertThat(patternGpt.lastHigh).isTrue();
+        assertThat(patternGpt.lastWidth).isEqualTo(128); // 768보다 작으면 그대로
+        // GPT 답이 3등 밖(floral) → 모델 1등(dot)
+        patternGpt.answer = "floral";
+        var g2 = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g2.pattern()).isEqualTo("dot");
+        assertThat(g2.patternCheckedBy()).isEqualTo("model");
+        // 동의 안 했으면 묻지 않고 모름
+        assertThat(service.inspect(photo, "worn", "front", false).garments().getFirst().pattern()).isNull();
+        assertThat(patternGpt.calls).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("옷 종류 모델이 아무것도 못 찾으면 사진 전체를 옷 한 벌(other)로")
     void noGarmentFound() {
         garments.ready = true;

@@ -1,0 +1,9 @@
+{
+ "load_sec": 5.1,
+ "visual_fp16_gpu_MB": 827,
+ "gpu_fp16_batch2_ms": 166,
+ "gpu_fp16_batch2_peak_MB": 840,
+ "gpu_fp16_batch8_ms": 576,
+ "gpu_fp16_batch8_peak_MB": 881,
+ "process_rss_MB": 1945
+}

@@ -38,10 +38,10 @@ public class DetectorConfig {
         return new OnnxGarmentEmbedder(props, check);
     }
 
-    /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. */
+    /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. clothes.pattern.lora-model 파일이 있으면 두 모델을 섞어 씀. */
     @Bean(destroyMethod = "close")
     OnnxPatternClassifier patternClassifier(PatternProperties props, ResourceLoader loader) {
-        return new OnnxPatternClassifier(loader.getResource(props.model()), props);
+        return new OnnxPatternClassifier(loader.getResource(props.model()), props.loraModel(), props);
     }
 
     /** 옷 색 인식 모델(K-Fashion 20색). 바꾸려면 환경 변수 CLOTHES_COLOR_MODEL, 끄려면 none. */

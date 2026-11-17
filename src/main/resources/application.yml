@@ -38,6 +38,11 @@ clothes:
     version: yolo26n-pattern8
     classes: animal,check,dot,floral,graphic,other,plain,stripe
     sure-threshold: 0.7
+    # FashionSigLIP + LoRA 무늬 모델(약 350MB, AI Hub K-Fashion 포함 학습)은 레포에 넣지 않고 젯슨 파일 경로로 줌.
+    # 있으면 LoRA 0.7 + 위 모델 0.3으로 섞고 기준 0.6. "모름"이면 입은 옷도 GPT(detail high, 긴 변 768)에게 묻고 3등 안일 때만 받음
+    lora-model: ${CLOTHES_PATTERN_LORA_MODEL:}
+    lora-weight: 0.7
+    lora-sure-threshold: 0.6
   # 옷마다 이미지 벡터(옷장에서 같은 옷 판단용, 이슈 #15). Marqo FashionSigLIP vision ONNX(Apache-2.0, 372MB)는 레포에 넣지 않고
   # 경로로 받음. 비어 있거나 파일이 없으면 embedding 없이 응답
   embed:

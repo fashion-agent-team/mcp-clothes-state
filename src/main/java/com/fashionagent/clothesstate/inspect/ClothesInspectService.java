@@ -259,7 +259,8 @@ public class ClothesInspectService {
         // 1) tell 이상은 바로 결함, ask~tell은 애매한 것으로 모음
         List<Detection> unsure = new ArrayList<>();
         // 무늬(모델 + 애매하면 GPT)는 얼룩 GPT 확인과 상관없어서 동시에 시작합니다. 둘 다 GPT를 부르면 예전엔 차례로 기다렸습니다.
-        boolean askPatternGpt = m.equals("laid") && Boolean.TRUE.equals(allowGpt);
+        // 두 무늬 모델을 섞어 쓰면 입은 사진도 "모름"인 옷만 GPT에게 물음(2026-11-17 정지원, 입은 옷 무늬 0.845 → 0.900)
+        boolean askPatternGpt = (m.equals("laid") || patterns.mixed()) && Boolean.TRUE.equals(allowGpt);
         CompletableFuture<String[][]> patternsLater = CompletableFuture.supplyAsync(
                 () -> patterns(img, slots, askPatternGpt), WORKERS);
         for (Detection d : join(found)) {
@@ -626,6 +627,10 @@ public class ClothesInspectService {
     /**
      * 옷마다 {무늬, checkedBy}. 모델이 없거나 실패하면 {null, null}. 모델이 "모름"이고 askGpt면 그 옷 박스만
      * GPT에게 동시에 묻고, timeout 안에 답한 것만 채웁니다.
+     *
+     * <p>두 모델을 섞어 쓰면({@link PatternClassifier#mixed()}) val로 고른 규칙 그대로: 섞은 확률이 기준(0.6) 이상인 무늬와 무지는
+     * 모델 답, 기준 미만인 무늬만 GPT(detail high)에게 묻고, GPT 답이 모델 1~3등 안이면 GPT 답, 아니면 모델 1등을 씁니다.
+     * 이름 확신(PATTERN_NAME_SURE)·호피 다시 묻기는 YOLO 하나일 때 규칙이라 쓰지 않습니다.
      */
     private String[][] patterns(BufferedImage img, List<Slot> slots, boolean askGpt) {
         String[][] out = new String[slots.size()][4]; // {무늬, checkedBy, 모델 1등, 1등 확률}
@@ -634,6 +639,7 @@ public class ClothesInspectService {
         }
         List<Integer> unsure = new ArrayList<>();
         List<PatternClassifier.Result> unsureResults = new ArrayList<>();
+        boolean mixed = patterns.mixed();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             if ("shoes".equals(s.kind.category())) {
@@ -643,7 +649,14 @@ public class ClothesInspectService {
                 PatternClassifier.Result r = patterns.classify(img, s.box.x(), s.box.y(), s.box.w(), s.box.h());
                 out[i][2] = r.top();
                 out[i][3] = String.format(java.util.Locale.ROOT, "%.2f", r.confidence());
-                if (r.pattern() != null && vague(r)) {
+                if (mixed) {
+                    if (r.pattern() != null) {
+                        out[i] = new String[] {r.pattern(), "model", r.top(), out[i][3]};
+                    } else {
+                        unsure.add(i);
+                        unsureResults.add(r);
+                    }
+                } else if (r.pattern() != null && vague(r)) {
                     // 무늬는 있는데 어떤 무늬인지는 덜 확실함: 모름으로 두고 patternGuess=other("무늬가 있는 것 같아요").
                     // 동의했으면 GPT에게 물어 이름을 채움. agent는 무늬를 모르는 옷이 있으면 GPT 동의를 물음(agent #39).
                     unsure.add(i);
@@ -669,12 +682,12 @@ public class ClothesInspectService {
             List<Future<PatternVerifier.Answer>> futures = new ArrayList<>();
             for (int j = 0; j < unsure.size(); j++) {
                 BufferedImage piece = OpenAiPatternVerifier.shrink(crop(img, slots.get(unsure.get(j)).box),
-                        OpenAiPatternVerifier.MAX_SIDE);
+                        mixed ? OpenAiPatternVerifier.MAX_SIDE_HIGH : OpenAiPatternVerifier.MAX_SIDE);
                 PatternClassifier.Result mine = unsureResults.get(j);
                 futures.add(pool.submit(() -> {
                     gptSlots.acquire();
                     try {
-                        PatternVerifier.Answer a = patternVerifier.ask(piece);
+                        PatternVerifier.Answer a = patternVerifier.ask(piece, mixed);
                         if (a != null) {
                             store.savePattern(piece, a.pattern(), a.confidence(), a.model(), mine.top(), mine.confidence());
                         }
@@ -689,7 +702,12 @@ public class ClothesInspectService {
                 try {
                     PatternVerifier.Answer a = futures.get(j).get(Math.max(0, deadline - System.nanoTime()),
                             java.util.concurrent.TimeUnit.NANOSECONDS);
-                    if (a != null) {
+                    PatternClassifier.Result mine = unsureResults.get(j);
+                    if (a != null && mixed && !mine.ranked().contains(a.pattern())) {
+                        // GPT 답이 모델 3등 밖: 모델 1등을 씀(val 2,376장에서 이 규칙이 가장 좋았음)
+                        out[unsure.get(j)][0] = mine.top();
+                        out[unsure.get(j)][1] = "model";
+                    } else if (a != null) {
                         out[unsure.get(j)][0] = a.pattern();
                         out[unsure.get(j)][1] = "gpt";
                     }

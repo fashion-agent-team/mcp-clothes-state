@@ -8,10 +8,15 @@ public interface PatternVerifier {
     boolean ready();
 
     /**
-     * @param garment 옷 박스만 잘라 낸 그림(내려놓은 옷 사진에서만 씀)
+     * @param garment 옷 박스만 잘라 낸 그림
      * @return 답. 실패하거나 시간이 지나면 null
      */
     Answer ask(BufferedImage garment);
+
+    /** high면 그림을 detail high로 보냅니다(무늬 두 모델을 섞어 쓸 때, 입은 옷의 작은 조각용). */
+    default Answer ask(BufferedImage garment, boolean high) {
+        return ask(garment);
+    }
 
     /** pattern은 plain·stripe·check·floral·dot·graphic·animal·other 중 하나. */
     record Answer(String pattern, double confidence, String model) {

@@ -60,6 +60,15 @@ clothes:
     model-bonus-per-confidence: ${CLOTHES_TEXT_MODEL_BONUS_PER_CONF:0}
     # 종류 다시 고르기에만 쓰는 학습 벡터(probe_v4, DeepFashion2 포함 학습: 학교 프로젝트 전용). 비우면 위 글 벡터.
     kind-vectors: ${CLOTHES_KIND_VECTORS:classpath:models/garment-kind-probe-v4.json}
+  # 아주 애매한 옷(확신도 < 0.7, 종류 점수 1·2등 차이 < 0.015)만 SigLIP2 So400m 벡터 서버(so400m-embed/)로 다시 고름.
+  # 주소가 비면 꺼짐. 느리거나 실패하면 지금 결과 그대로. 근거 training/probe/README.md 12차(2026-11-17)
+  so400m:
+    url: ${CLOTHES_SO400M_URL:}
+    probe: ${CLOTHES_SO400M_PROBE:classpath:models/garment-kind-so400m-probe.json}
+    timeout: ${CLOTHES_SO400M_TIMEOUT:800ms}
+    max-confidence: 0.7
+    max-gap: 0.015
+    max-boxes: 3
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

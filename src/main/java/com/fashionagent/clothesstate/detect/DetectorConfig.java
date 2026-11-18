@@ -38,6 +38,14 @@ public class DetectorConfig {
         return new OnnxGarmentEmbedder(props, check);
     }
 
+    /** 애매한 옷만 So400m 벡터 서버로 다시 고르는 보조 경로. clothes.so400m.url이 비면 꺼짐. */
+    @Bean
+    com.fashionagent.clothesstate.embed.So400mAssist so400mAssist(
+            com.fashionagent.clothesstate.embed.So400mAssistProperties props, ResourceLoader loader) {
+        return new com.fashionagent.clothesstate.embed.So400mAssist(props,
+                props.probe() == null || props.probe().isBlank() ? null : loader.getResource(props.probe()));
+    }
+
     /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. clothes.pattern.lora-model 파일이 있으면 두 모델을 섞어 씀. */
     @Bean(destroyMethod = "close")
     OnnxPatternClassifier patternClassifier(PatternProperties props, ResourceLoader loader) {

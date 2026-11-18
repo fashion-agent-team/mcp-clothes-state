@@ -623,6 +623,98 @@ class ClothesInspectServiceTest {
         assertThat(gs.getFirst().category()).isEqualTo("dress");
     }
 
+    /** So400m 보조 경로 시험용: 늘 dress 벡터를 주는 가짜 서버. */
+    private com.sun.net.httpserver.HttpServer dressServer(java.util.concurrent.atomic.AtomicInteger calls) throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/embed", ex -> {
+            calls.incrementAndGet();
+            ex.getRequestBody().readAllBytes();
+            byte[] b = "{\"vector\":[0,1,0]}".getBytes();
+            ex.sendResponseHeaders(200, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private com.fashionagent.clothesstate.embed.So400mAssist dressAssist(com.sun.net.httpserver.HttpServer server) {
+        String probe = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
+        return new com.fashionagent.clothesstate.embed.So400mAssist(
+                new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:" + server.getAddress().getPort(),
+                        "x", java.time.Duration.ofMillis(800), 0.7, 0.015, 3, 0.03),
+                new org.springframework.core.io.ByteArrayResource(probe.getBytes()));
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 확신도 낮고 종류 점수가 붙어 있으면 So400m이 고른 종류로 바꾼다")
+    void so400mRepicksCloseCall() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            embedder.ready = true;
+            embedder.textCheck = shirtDressCheck();
+            // shirt 0.700, dress 0.695: 차이 0.005 < 0.015 → 지금 결과는 셔츠, So400m은 원피스
+            embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+            service.setAssist(dressAssist(server));
+            var g = service.inspect(photo, "worn", "front").garments().getFirst();
+            assertThat(g.category()).isEqualTo("dress");
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 확신도 0.7 이상이거나 점수 차이가 크면 묻지 않는다")
+    void so400mSkipsClearOrConfident() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            embedder.ready = true;
+            embedder.textCheck = shirtDressCheck();
+            service.setAssist(dressAssist(server));
+            // 점수 차이 0.2 → 묻지 않고 셔츠
+            embedder.vectors = List.of(new float[] {0.80f, 0.60f, 0f});
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+            // 확신도 0.8(입은 사진 0.9 미만이라 글 벡터는 쓰지만 So400m은 0.7 미만만) → 묻지 않음
+            embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+            garments.next = List.of(new Detection("tshirt", 0.8, 0.2, 0.1, 0.5, 0.8));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+            assertThat(calls.get()).isZero();
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 서버가 꺼져 있으면 지금 결과(글 벡터) 그대로")
+    void so400mDownKeepsCurrent() {
+        String probe = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+        service.setAssist(new com.fashionagent.clothesstate.embed.So400mAssist(
+                new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:9", "x",
+                        java.time.Duration.ofMillis(300), 0.7, 0.015, 3, 0.03),
+                new org.springframework.core.io.ByteArrayResource(probe.getBytes())));
+        try {
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+        } finally {
+            service.setAssist(null);
+        }
+    }
+
     private ClothesInspectService wearService(com.fashionagent.clothesstate.FakeWearChecker wear) {
         var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
                 0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));

@@ -13,7 +13,7 @@ SigLIP2 So400m 이미지 벡터 서버예요. 옷 종류 보조 경로에 쓰고
 - 젯슨 오린 나노에서 이미지 탑만 fp16 GPU에 올렸을 때 가중치는 827MB, 프로세스는 약 1.95GB예요. 박스 하나(좌우 2장)에 166ms가 걸려요.
 - probe는 DeepFashion2 train(비상업 연구·교육용)도 써서 학습했어요. 그래서 **학교 프로젝트 전용**이에요.
 
-## 붙이는 법 (예시, 아직 적용 안 함)
+## 붙이는 법 (2026-11-19 team4에 이렇게 배포함)
 compose 파일은 지금 젯슨에 있는 파일에서 필요한 줄만 고쳐요. 고치기 전에 백업해요.
 
 ```yaml
@@ -23,11 +23,13 @@ compose 파일은 지금 젯슨에 있는 파일에서 필요한 줄만 고쳐�
     runtime: nvidia
     mem_limit: 2560m
     memswap_limit: 2560m      # 스왑 금지(다른 서버가 느려지지 않게)
+    ports: ["100.90.21.23:8096:8096"]   # Tailscale IP에만
     environment:
-      SO400M_WEIGHTS: /hf/models--timm--ViT-SO400M-14-SigLIP2/snapshots/<sha>/open_clip_model.safetensors
+      SO400M_WEIGHTS: /models/so400m/open_clip_model.safetensors
+      NVIDIA_VISIBLE_DEVICES: all          # 없으면 "Found no NVIDIA driver"
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
-      - ~/.cache/huggingface/hub:/hf:ro
-    expose: ["8096"]
+      - ../models/so400m:/models/so400m:ro
   mcp-clothes-state:
     environment:
       CLOTHES_SO400M_URL: http://so400m-embed:8096
@@ -40,3 +42,8 @@ compose 파일은 지금 젯슨에 있는 파일에서 필요한 줄만 고쳐�
 curl -s localhost:8096/health
 python3 -c "import base64,json,urllib.request;b=base64.b64encode(open('shirt.jpg','rb').read()).decode();print(json.loads(urllib.request.urlopen(urllib.request.Request('http://localhost:8096/embed',json.dumps({'imageBase64':b}).encode(),{'content-type':'application/json'})).read())['ms'])"
 ```
+
+## 2026-11-19 배포 측정 (team4 Orin Nano, L4T R39)
+- 이미지는 9.5GB예요. torch cu132와 nvidia 휠이 들어 있어요. 시작에 9.6초 걸리고, 이미지 탑은 GPU 827MB, 컨테이너 메모리는 1.79GB예요.
+- 나노에서 /embed를 불러 보면 서버 처리 86ms, 왕복 약 111ms예요. 첫 호출은 328ms였어요.
+- clothes_inspect 로그는 "So400m 다시 묻기 1벌 중 1벌 답, 132~362ms"였어요. 애매한 사진 12장의 응답 중간값은 2.20초에서 2.27초로 늘었어요.

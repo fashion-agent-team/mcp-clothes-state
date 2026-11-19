@@ -1,0 +1,32 @@
+package com.fashionagent.clothesstate.embed;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+
+/**
+ * clothes.text-check.*: 옷 박스 이미지 벡터를 옷 이름 글 벡터와 견줘 종류를 다시 보고, 옷이 아닌 것(빈 벽·바닥)을 뺍니다.
+ * 옷 벡터 모델(clothes.embed.model)이 있을 때만 씁니다. 기준값 근거는 docs/training-log.md "글 벡터로 종류 다시 보기".
+ */
+@ConfigurationProperties("clothes.text-check")
+public record TextCheckProperties(
+        /** 미리 계산한 FashionSigLIP 글 벡터(이름별 문장 35개). 비우면 끔. */
+        @DefaultValue("classpath:models/garment-text-fsiglip.json") String vectors,
+        /** "빈 벽·바닥" 점수가 가장 높은 옷 이름 점수보다 이만큼 넘으면 옷이 아니라고 봄. 실제 옷 1,282벌 최대 0.024, 빈 벽 60장 최소 0.044. */
+        @DefaultValue("0.03") double noneMargin,
+        /** 내려놓은 사진: 옷 종류 모델 확신도가 이보다 낮으면 글 벡터로 종류를 다시 고름. */
+        @DefaultValue("0.7") double keepLaid,
+        /** 입은 사진: 옷 종류 모델 확신도가 이보다 낮으면 글 벡터로 종류를 다시 고름(입은 사진은 모델이 약함). */
+        @DefaultValue("0.9") double keepWorn,
+        /**
+         * 확신도가 낮아 글 벡터로 다시 고를 때, 옷 종류 모델이 고른 큰 분류(상의·겉옷·원피스·하의)의 이름 점수에 더하는 값.
+         * 글 벡터 1·2등 차이가 아주 작을 때(겉옷↔상의 0.005 안팎) 모델 쪽을 따르게 함. 0이면 끔.
+         */
+        @DefaultValue("0.01") double modelBonus,
+        /** 위 값에 더해, 모델 확신도 × 이 값만큼 더 줌. */
+        @DefaultValue("0.005") double modelBonusPerConfidence,
+        /**
+         * 종류 다시 고르기에만 쓰는 벡터 파일(학습한 probe, 형식은 vectors와 같음). 비우면 vectors를 씀.
+         * "옷 아님"(none) 판단은 늘 vectors로 함(probe의 none은 기준값이 달라서).
+         */
+        @DefaultValue("") String kindVectors) {
+}

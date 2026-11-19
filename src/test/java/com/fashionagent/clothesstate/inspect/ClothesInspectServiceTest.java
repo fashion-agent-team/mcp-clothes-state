@@ -1,0 +1,896 @@
+package com.fashionagent.clothesstate.inspect;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.fashionagent.clothesstate.ClothesStateException;
+import com.fashionagent.clothesstate.ClothesStateProperties;
+import com.fashionagent.clothesstate.FakeDetector;
+import com.fashionagent.clothesstate.FakeGarmentDetector;
+import com.fashionagent.clothesstate.FakeVerifier;
+import com.fashionagent.clothesstate.verify.CandidateStore;
+import com.fashionagent.clothesstate.verify.CropVerifier;
+import com.fashionagent.clothesstate.verify.GptCheckProperties;
+import com.fashionagent.clothesstate.detect.Detection;
+import java.util.List;
+import com.fashionagent.clothesstate.Photos;
+import java.awt.Color;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.util.unit.DataSize;
+
+class ClothesInspectServiceTest {
+
+    private final ClothesStateProperties props = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.3, 0.5,
+            5, 25, DataSize.ofMegabytes(8), "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
+            List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
+    private final FakeDetector detector = new FakeDetector();
+    private final FakeGarmentDetector garments = new FakeGarmentDetector();
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path tmp;
+    private final FakeVerifier verifier = new FakeVerifier();
+    private final com.fashionagent.clothesstate.FakeEmbedder embedder = new com.fashionagent.clothesstate.FakeEmbedder();
+    private final com.fashionagent.clothesstate.FakePattern pattern = new com.fashionagent.clothesstate.FakePattern();
+    private final com.fashionagent.clothesstate.FakePatternVerifier patternGpt = new com.fashionagent.clothesstate.FakePatternVerifier();
+    private ClothesInspectService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        var gpt = new GptCheckProperties("test-key", "gpt-4.1-mini", "http://localhost", java.time.Duration.ofSeconds(1),
+                0.3, 512, 64, 0, 0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
+        service = new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
+    }
+    private final String photo = Photos.jpeg(new Color(200, 200, 200));
+
+    @Test
+    @DisplayName("0.5 이상은 defects(바로 알림), 0.3~0.5는 pendingHelper, 0.3 미만은 버림")
+    void thresholds() {
+        InspectResult r = service.inspect(photo, null, null);
+        assertThat(r.lighting()).isEqualTo("ok");
+        assertThat(r.source()).isEqualTo("model");
+        assertThat(r.modelVersion()).isEqualTo("yolo26n-v6");
+        var g = r.garments().getFirst();
+        assertThat(g.id()).isEqualTo("g1");
+        assertThat(g.category()).isEqualTo("other");
+        assertThat(g.name()).isEqualTo("옷");
+        assertThat(g.position()).isEqualTo("center");
+        assertThat(g.defects()).singleElement().satisfies(d -> {
+            assertThat(d.kind()).isEqualTo("stain");
+            assertThat(d.where()).isEqualTo("옷 오른쪽 위쪽");
+            assertThat(d.confidence()).isEqualTo(0.82);
+        });
+        assertThat(r.pendingHelper().garmentId()).isEqualTo("g1");
+        assertThat(r.pendingHelper().note()).isEqualTo("확실하지 않은 부분이 있어요.");
+        assertThat(r.pendingHelper().candidates()).extracting(InspectResult.Candidate::kind,
+                InspectResult.Candidate::where).containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("stain", "옷 왼쪽 아래쪽"),
+                        org.assertj.core.groups.Tuple.tuple("tear", "옷 가운데"));
+        assertThat(r.pendingHelper().candidates().getFirst().box())
+                .isEqualTo(new InspectResult.Box(0.1, 0.8, 0.05, 0.05));
+    }
+
+    @Test
+    @DisplayName("키가 있으면 애매한 것은 GPT에게 묻고, 결함이라고 한 것만 defects(checkedBy=gpt)와 학습 후보로")
+    void gptCheck() throws Exception {
+        verifier.ready = true;
+        verifier.answer = kind -> "tear".equals(kind) ? new CropVerifier.Verdict("tear", 0.8, "fake")
+                : new CropVerifier.Verdict("none", 0.9, "fake");
+        InspectResult r = service.inspect(photo, null, null, true);
+        var g = r.garments().getFirst();
+        assertThat(g.defects()).extracting(InspectResult.Defect::kind, InspectResult.Defect::checkedBy).containsExactly(
+                org.assertj.core.groups.Tuple.tuple("stain", "model"),
+                org.assertj.core.groups.Tuple.tuple("tear", "gpt"));
+        assertThat(r.pendingHelper()).isNull();
+        assertThat(verifier.sizes).hasSize(2);
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.filter(java.nio.file.Files::isRegularFile).map(p -> p.getFileName().toString()).toList();
+            assertThat(saved).hasSize(2).anyMatch(n -> n.endsWith(".jpg")).anyMatch(n -> n.endsWith(".json"));
+        }
+    }
+
+    @Test
+    @DisplayName("동의 없음(allowGpt null·false)이나 GPT가 답하지 못하면 예전처럼 pendingHelper, 아무것도 저장하지 않음")
+    void gptOff() throws Exception {
+        verifier.ready = true;
+        assertThat(service.inspect(photo, null, null, false).pendingHelper().candidates()).hasSize(2);
+        assertThat(service.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
+        assertThat(verifier.sizes).isEmpty();
+        verifier.answer = kind -> null;
+        assertThat(service.inspect(photo, null, null, true).pendingHelper().candidates()).hasSize(2);
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            assertThat(files.filter(java.nio.file.Files::isRegularFile)).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("입은 사진 위쪽(얼굴이 들어갈 수 있음) 후보는 GPT에게 보내지 않음")
+    void wornTopNotSent() {
+        verifier.ready = true;
+        detector.next = List.of(new Detection("stain", 0.41, 0.4, 0.05, 0.05, 0.05),
+                new Detection("stain", 0.41, 0.4, 0.6, 0.05, 0.05));
+        InspectResult r = service.inspect(photo, "worn", "front", true);
+        assertThat(verifier.sizes).hasSize(1);
+        assertThat(r.pendingHelper().candidates()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("결함 조각: 박스 30% 넓힘, 64px보다 작으면 늘림, 긴 변 512 이하")
+    void defectCrop() {
+        var img = new java.awt.image.BufferedImage(2000, 1000, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var small = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0.5, 0.5, 0.01, 0.02), 0.3, 64,
+                512);
+        assertThat(small.getWidth()).isEqualTo(64);
+        assertThat(small.getHeight()).isEqualTo(64);
+        var mid = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0.1, 0.1, 0.1, 0.1), 0.3, 64, 512);
+        assertThat(mid.getWidth()).isEqualTo(320);
+        assertThat(mid.getHeight()).isEqualTo(160);
+        var big = ClothesInspectService.defectCrop(img, new Detection("stain", 0.4, 0, 0, 1, 1), 0.3, 64, 512);
+        assertThat(big.getWidth()).isEqualTo(512);
+        assertThat(big.getHeight()).isEqualTo(256);
+    }
+
+    @Test
+    @DisplayName("기준 0.2: GPT를 쓰면 0.2~0.3도 묻고, 못 쓰면 0.3 미만은 예전처럼 버림. 3초(여기선 0.2초)를 넘기면 확인 못 한 것으로")
+    void fallbackAndTimeout() {
+        var p02 = new ClothesStateProperties("none", "yolo26n-v6", 512, 0.5, 0.2, 0.5, 5, 25, DataSize.ofMegabytes(8),
+                "none", "yolo26n-fashion12", 0.4, 0.25, 0.7, 6,
+                List.of(com.fashionagent.clothesstate.detect.OnnxGarmentDetector.KINDS12), 0.1);
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofMillis(200), 0.3, 512, 64, 0,
+                0.3, 0.25, "", 30, java.time.Duration.ofMillis(200));
+        var svc = new ClothesInspectService(p02, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder, pattern, patternGpt);
+        verifier.ready = true;
+        // GPT 안 씀: 0.41·0.33만 후보, 0.20은 버림
+        assertThat(svc.inspect(photo, null, null).pendingHelper().candidates()).hasSize(2);
+        // GPT 씀: 0.41·0.33·0.20 세 개를 물음
+        svc.inspect(photo, null, null, true);
+        assertThat(verifier.sizes).hasSize(3);
+        // GPT가 늦으면 확인 못 한 것으로(0.3 이상만 후보)
+        verifier.answer = kind -> {
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new CropVerifier.Verdict("stain", 0.9, "fake");
+        };
+        long t = System.nanoTime();
+        InspectResult r = svc.inspect(photo, null, null, true);
+        assertThat((System.nanoTime() - t) / 1_000_000).isLessThan(1500);
+        assertThat(r.pendingHelper().candidates()).hasSize(2);
+        assertThat(r.garments().getFirst().defects()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("학습 후보는 보관 기간(30일)이 지난 날짜 폴더를 지움")
+    void prune() throws Exception {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
+        java.nio.file.Files.createDirectories(tmp.resolve("2026-10-01"));
+        java.nio.file.Files.writeString(tmp.resolve("2026-10-01/a.json"), "{}");
+        java.nio.file.Files.createDirectories(tmp.resolve("2026-11-01"));
+        new CandidateStore(gpt).prune(java.time.LocalDate.of(2026, 11, 9));
+        assertThat(tmp.resolve("2026-10-01")).doesNotExist();
+        assertThat(tmp.resolve("2026-11-01")).exists();
+    }
+
+    @Test
+    @DisplayName("애매한 것이 없으면 pendingHelper는 null")
+    void noPending() {
+        detector.next = detector.next.subList(0, 1);
+        assertThat(service.inspect(photo, "laid", null).pendingHelper()).isNull();
+    }
+
+    @Test
+    @DisplayName("worn이면 입은 사람 몸 기준 where, position 없음")
+    void worn() {
+        InspectResult r = service.inspect(photo, "worn", "front");
+        assertThat(r.garments().getFirst().position()).isNull();
+        assertThat(r.garments().getFirst().defects().getFirst().where()).isEqualTo("몸 왼쪽 위쪽");
+    }
+
+    @Test
+    @DisplayName("어두운 사진은 판단하지 않고 lighting=dark")
+    void dark() {
+        InspectResult r = service.inspect(Photos.jpeg(new Color(10, 10, 12)), null, null);
+        assertThat(r.lighting()).isEqualTo("dark");
+        assertThat(r.garments()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("잘못된 mode·view, 모델 없음은 오류 코드")
+    void errors() {
+        assertThatThrownBy(() -> service.inspect(photo, "hanging", null))
+                .isInstanceOfSatisfying(ClothesStateException.class, e -> assertThat(e.code()).isEqualTo("bad_request"));
+        assertThatThrownBy(() -> service.inspect(photo, "worn", "top"))
+                .isInstanceOfSatisfying(ClothesStateException.class, e -> assertThat(e.code()).isEqualTo("bad_request"));
+        detector.ready = false;
+        assertThatThrownBy(() -> service.inspect(photo, null, null))
+                .isInstanceOfSatisfying(ClothesStateException.class, e -> assertThat(e.code()).isEqualTo("not_ready"));
+    }
+
+    @Test
+    @DisplayName("옷 종류 모델이 찾은 옷마다 종류·박스 안 색·위치, 결함은 그 옷에 붙고 where는 옷 기준")
+    void garments() {
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("bottom", 0.88, 0.55, 0.10, 0.40, 0.80),
+                new Detection("top", 0.91, 0.05, 0.10, 0.40, 0.60),
+                new Detection("shoes", 0.20, 0.40, 0.90, 0.10, 0.05));
+        detector.next = List.of(
+                new Detection("stain", 0.82, 0.38, 0.12, 0.04, 0.04),
+                new Detection("tear", 0.42, 0.85, 0.75, 0.05, 0.05));
+        String photo = Photos.halves(new Color(250, 250, 250), new Color(15, 30, 90), new Color(30, 30, 30));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.modelVersion()).isEqualTo("yolo26n-v6+yolo26n-fashion12");
+        assertThat(r.garments()).extracting(InspectResult.Garment::id, InspectResult.Garment::category,
+                InspectResult.Garment::name, InspectResult.Garment::position).containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("g1", "top", "상의", "left"),
+                        org.assertj.core.groups.Tuple.tuple("g2", "bottom", "하의", "right"));
+        var top = r.garments().get(0);
+        var bottom = r.garments().get(1);
+        assertThat(top.colorFamily()).isEqualTo("navy");
+        assertThat(bottom.colorFamily()).isEqualTo("black");
+        assertThat(top.confidence()).isEqualTo(0.91);
+        assertThat(top.box()).isEqualTo(new InspectResult.Box(0.05, 0.1, 0.4, 0.6));
+        assertThat(top.defects()).singleElement().satisfies(d -> assertThat(d.where()).isEqualTo("옷 오른쪽 위쪽"));
+        assertThat(bottom.defects()).isEmpty();
+        assertThat(r.pendingHelper().garmentId()).isEqualTo("g2");
+        assertThat(r.pendingHelper().candidates()).singleElement()
+                .satisfies(c -> assertThat(c.where()).isEqualTo("옷 오른쪽 아래쪽"));
+    }
+
+    @Test
+    @DisplayName("벡터 모델이 있으면 옷마다 그 옷 박스로 embedding, embeddingModel도 같이")
+    void embeddings() {
+        embedder.ready = true;
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("bottom", 0.88, 0.55, 0.10, 0.40, 0.80),
+                new Detection("top", 0.91, 0.05, 0.10, 0.40, 0.60));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.embeddingModel()).isEqualTo("fake-embed");
+        assertThat(r.garments()).extracting(InspectResult.Garment::embedding)
+                .containsExactly(new float[] {0.05f, 0.1f, 1f}, new float[] {0.55f, 0.1f, 1f});
+        assertThat(embedder.calls).hasSize(2);
+        assertThat(embedder.calls.getFirst()).containsExactly(0.05, 0.1, 0.4, 0.6);
+    }
+
+    @Test
+    @DisplayName("벡터 모델이 없으면 embedding·embeddingModel은 null, 실패하면 그 옷만 null이고 검사 결과는 그대로")
+    void embeddingsOffOrFailing() {
+        InspectResult off = service.inspect(photo, null, null);
+        assertThat(off.embeddingModel()).isNull();
+        assertThat(off.garments().getFirst().embedding()).isNull();
+        assertThat(embedder.calls).isEmpty();
+        embedder.ready = true;
+        embedder.fail = true;
+        InspectResult failed = service.inspect(photo, null, null);
+        assertThat(failed.garments().getFirst().embedding()).isNull();
+        assertThat(failed.garments().getFirst().defects()).hasSize(1);
+        // 사진 전체를 옷 한 벌로 볼 때는 사진 전체 박스
+        assertThat(embedder.calls.getFirst()).containsExactly(0.0, 0.0, 1.0, 1.0);
+    }
+
+    @Test
+    @DisplayName("무늬 모델이 있으면 옷마다 pattern, 신발은 null, modelVersion 뒤에 무늬 모델 이름")
+    void patterns() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        assertThat(service.inspect(photo, null, null).garments().getFirst().pattern()).isNull();
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60),
+                new Detection("shoes", 0.88, 0.55, 0.70, 0.20, 0.20));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.modelVersion()).endsWith("+fake-pattern");
+        assertThat(r.garments()).extracting(InspectResult.Garment::pattern).containsExactly("stripe", null);
+        assertThat(pattern.calls).isEqualTo(1);
+        // 모르면 null, 실패해도 검사 결과는 그대로
+        pattern.answer = null;
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isNull();
+        pattern.fail = true;
+        InspectResult failed = service.inspect(photo, "laid", null);
+        assertThat(failed.garments().getFirst().pattern()).isNull();
+        assertThat(failed.garments()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("옷 색이 한 가지뿐인데 모델이 0.9 미만으로 줄무늬라고 하면 버림(모니터 화면 줄·청바지 결), 두 색이면 두 번째 색과 함께")
+    void patternNeedsTwoColors() {
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.60, 0.80));
+        pattern.confidence = 0.8;
+        var plain = service.inspect(photo, "laid", null).garments().getFirst();
+        assertThat(plain.pattern()).isNull();
+        assertThat(plain.patternCheckedBy()).isNull();
+        assertThat(plain.subColorName()).isNull();
+        var striped = service.inspect(Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240)), "laid", null)
+                .garments().getFirst();
+        // 두 색이어도 0.9 미만이면 무늬 이름은 대지 않고 "무늬가 있는 것 같아요"(patternGuess=other)
+        assertThat(striped.pattern()).isNull();
+        assertThat(striped.patternGuess()).isEqualTo("other");
+        assertThat(striped.subColorName()).isNotNull();
+        // 모델이 0.9 이상으로 확신하면 색이 하나여도 둠(시험 사진에서 맞힌 무늬를 덜 잃게)
+        pattern.confidence = 0.95;
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().pattern()).isEqualTo("stripe");
+    }
+
+    @Test
+    @DisplayName("무늬 이름이 덜 확실하면(0.9 미만) 모름+patternGuess=other, 동의했으면 GPT에게 물어 이름을 채움. 호피는 확신해도 GPT에게 다시 물음")
+    void vaguePatternName() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        pattern.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        pattern.confidence = 0.8;
+        var g0 = service.inspect(photo, "laid", null, false).garments().getFirst();
+        assertThat(g0.pattern()).isNull();
+        assertThat(g0.patternGuess()).isEqualTo("other");
+        assertThat(patternGpt.calls).isZero();
+        patternGpt.ready = true;
+        patternGpt.answer = "stripe";
+        var g1 = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g1.pattern()).isEqualTo("stripe");
+        assertThat(g1.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // 0.9 이상 줄무늬는 그대로, GPT에 묻지 않음
+        pattern.confidence = 0.95;
+        assertThat(service.inspect(photo, "laid", null, true).garments().getFirst().pattern()).isEqualTo("stripe");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // 호피는 0.95여도 동의했으면 GPT에게 다시 물음(GPT가 무지라고 하면 무지)
+        pattern.answer = "animal";
+        patternGpt.answer = "plain";
+        var a = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(a.pattern()).isEqualTo("plain");
+        assertThat(patternGpt.calls).isEqualTo(2);
+        // 동의 안 했으면 호피 그대로
+        assertThat(service.inspect(photo, "laid", null, false).garments().getFirst().pattern()).isEqualTo("animal");
+    }
+
+    @Test
+    @DisplayName("무늬 모름: 내려놓은 사진·동의했을 때만 옷 박스를 GPT에게 물어 patternCheckedBy=gpt")
+    void patternGpt() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        pattern.ready = true;
+        pattern.answer = null; // 모델은 모름
+        patternGpt.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        // 동의 안 함 → 묻지 않음
+        var g0 = service.inspect(photo, "laid", null, false).garments().getFirst();
+        assertThat(g0.pattern()).isNull();
+        assertThat(g0.patternCheckedBy()).isNull();
+        assertThat(patternGpt.calls).isZero();
+        // 입은 사진 → 묻지 않음
+        service.inspect(photo, "worn", "front", true);
+        assertThat(patternGpt.calls).isZero();
+        // 내려놓은 사진 + 동의 → 옷 박스만 보냄
+        var g = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g.pattern()).isEqualTo("check");
+        assertThat(g.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        assertThat(patternGpt.lastWidth).isEqualTo(128); // 320 × 0.40
+        // 옷 박스 그림과 GPT 답을 무늬 학습 후보로 저장(그림 + json)
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.filter(f -> f.getFileName().toString().startsWith("pattern-")).toList();
+            assertThat(saved).hasSize(2);
+            var json = saved.stream().filter(f -> f.toString().endsWith(".json")).findFirst().orElseThrow();
+            assertThat(java.nio.file.Files.readString(json)).contains("\"task\":\"pattern\"", "\"label\":\"check\"",
+                    "\"modelTop\":\"dot\"", "\"reviewed\":false");
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+        // 모델이 확실하면 묻지 않고 model
+        pattern.answer = "stripe";
+        var g2 = service.inspect(photo, "laid", null, true).garments().getFirst();
+        assertThat(g2.patternCheckedBy()).isEqualTo("model");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        // GPT가 답을 못 하면 그대로 모름
+        pattern.answer = null;
+        patternGpt.answer = null;
+        assertThat(service.inspect(photo, "laid", null, true).garments().getFirst().pattern()).isNull();
+    }
+
+    @Test
+    @DisplayName("무늬 두 모델 섞기: 기준 이상 무늬는 0.9 미만이어도 모델 답, 모름이면 입은 사진도 GPT(high)에 묻고 3등 안일 때만 받음")
+    void patternMixedGpt() {
+        String photo = Photos.stripes(new Color(20, 30, 80), new Color(240, 240, 240));
+        pattern.ready = true;
+        pattern.mixed = true;
+        patternGpt.ready = true;
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.91, 0.05, 0.10, 0.40, 0.60));
+        // 섞은 확률이 기준(0.6) 이상인 무늬: 0.65여도 이름 그대로, GPT에 묻지 않음(YOLO 하나일 때의 0.9 규칙 안 씀)
+        pattern.answer = "stripe";
+        pattern.confidence = 0.65;
+        var g0 = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g0.pattern()).isEqualTo("stripe");
+        assertThat(g0.patternCheckedBy()).isEqualTo("model");
+        assertThat(patternGpt.calls).isZero();
+        // 모름 + 입은 사진 + 동의 → GPT에 high로 물음, 답(check)이 3등 안이라 받음
+        pattern.answer = null;
+        pattern.ranked = List.of("dot", "stripe", "check");
+        var g = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g.pattern()).isEqualTo("check");
+        assertThat(g.patternCheckedBy()).isEqualTo("gpt");
+        assertThat(patternGpt.calls).isEqualTo(1);
+        assertThat(patternGpt.lastHigh).isTrue();
+        assertThat(patternGpt.lastWidth).isEqualTo(128); // 768보다 작으면 그대로
+        // GPT 답이 3등 밖(floral) → 모델 1등(dot)
+        patternGpt.answer = "floral";
+        var g2 = service.inspect(photo, "worn", "front", true).garments().getFirst();
+        assertThat(g2.pattern()).isEqualTo("dot");
+        assertThat(g2.patternCheckedBy()).isEqualTo("model");
+        // 동의 안 했으면 묻지 않고 모름
+        assertThat(service.inspect(photo, "worn", "front", false).garments().getFirst().pattern()).isNull();
+        assertThat(patternGpt.calls).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("옷 종류 모델이 아무것도 못 찾으면 사진 전체를 옷 한 벌(other)로")
+    void noGarmentFound() {
+        garments.ready = true;
+        garments.next = List.of(new Detection("top", 0.2, 0.1, 0.1, 0.5, 0.5));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("other");
+        assertThat(r.garments()).singleElement().satisfies(g -> {
+            assertThat(g.category()).isEqualTo("other");
+            assertThat(g.box()).isEqualTo(new InspectResult.Box(0, 0, 1, 1));
+        });
+    }
+
+    @Test
+    @DisplayName("겹친 두 옷이면 결함은 더 작은 옷(안쪽)에, worn은 위쪽 옷부터")
+    void owner() {
+        var outer = new ClothesInspectService.Slot(GarmentKind.of("outer"), new InspectResult.Box(0.1, 0.1, 0.8, 0.6), 0.9, false);
+        var top = new ClothesInspectService.Slot(GarmentKind.of("top"), new InspectResult.Box(0.35, 0.15, 0.3, 0.4), 0.8, false);
+        assertThat(ClothesInspectService.owner(List.of(outer, top), new Detection("stain", 0.7, 0.45, 0.3, 0.05, 0.05)))
+                .isSameAs(top);
+        assertThat(ClothesInspectService.owner(List.of(outer, top), new Detection("stain", 0.7, 0.15, 0.3, 0.05, 0.05)))
+                .isSameAs(outer);
+        assertThat(ClothesInspectService.owner(List.of(outer, top), new Detection("stain", 0.7, 0.5, 0.95, 0.02, 0.02)))
+                .isNotNull();
+
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("shoes", 0.8, 0.4, 0.9, 0.2, 0.08),
+                new Detection("top", 0.9, 0.3, 0.2, 0.4, 0.35));
+        InspectResult r = service.inspect(this.photo, "worn", "front");
+        assertThat(r.garments()).extracting(InspectResult.Garment::category).containsExactly("top", "shoes");
+        assertThat(r.garments()).allSatisfy(g -> assertThat(g.position()).isNull());
+    }
+
+    @Test
+    @DisplayName("내려놓은 옷은 0.25부터 옷으로 보고, 입은 사진은 0.4부터")
+    void laidThreshold() {
+        garments.ready = true;
+        garments.next = List.of(new Detection("top", 0.33, 0.1, 0.1, 0.8, 0.8));
+        assertThat(service.inspect(photo, "laid", null).garments().getFirst().category()).isEqualTo("top");
+        assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("other");
+    }
+
+    @Test
+    @DisplayName("세부 종류는 category·이름·격식·소재로 바뀜")
+    void fineKinds() {
+        garments.ready = true;
+        garments.next = List.of(
+                new Detection("sweater", 0.8, 0.05, 0.1, 0.4, 0.6),
+                new Detection("shorts", 0.7, 0.55, 0.1, 0.4, 0.8));
+        var g = service.inspect(photo, "laid", null).garments();
+        assertThat(g).extracting(InspectResult.Garment::category, InspectResult.Garment::name,
+                InspectResult.Garment::formality, InspectResult.Garment::material).containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("top", "니트", "unknown", "니트"),
+                        org.assertj.core.groups.Tuple.tuple("bottom", "반바지", "casual", null));
+        assertThat(GarmentKind.of("coat")).isEqualTo(new GarmentKind("outer", "코트", "smart", null));
+        assertThat(GarmentKind.of("outer_unsure")).isEqualTo(new GarmentKind("outer", "겉옷", "unknown", null));
+        assertThat(GarmentKind.of("모름")).isEqualTo(GarmentKind.OTHER);
+    }
+
+    // ── 글 벡터로 종류 다시 보기·옷 아닌 것 빼기 (2026-11-12) ──
+
+    /** 3차원 시험 글 벡터: shirt=(1,0,0), dress=(0,1,0), shoes=(0.6,0.8,0) 대신 jacket, none=(0,0,1). */
+    private com.fashionagent.clothesstate.embed.GarmentTextCheck textCheck() {
+        String json = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"jacket","vector":[0.7,0.7,0]},{"name":"none","vector":[0,0,1]}]}""";
+        return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(json.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, ""));
+    }
+
+    @Test
+    @DisplayName("빈 벽처럼 글 벡터가 '옷 아님'이면 옷을 빼고 garments를 비워 돌려준다")
+    void wallIsNotGarment() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.1f, 0.99f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("skirt", 0.85, 0.0, 0.0, 1.0, 1.0));
+        InspectResult r = service.inspect(photo, "laid", null);
+        assertThat(r.garments()).isEmpty();
+        assertThat(r.lighting()).isEqualTo("ok");
+    }
+
+    @Test
+    @DisplayName("입은 사진에서 모델 확신도가 0.9 미만이면 글 벡터가 고른 종류로 바꾼다")
+    void wornLowConfidenceUsesText() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.99f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("dress");
+        assertThat(g.name()).isEqualTo("원피스");
+        // 확신도는 모델 값 그대로, 벡터는 다시 만들지 않음
+        assertThat(g.confidence()).isEqualTo(0.6);
+        assertThat(embedder.calls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("내려놓은 사진에서 모델 확신도가 0.7 이상이면 모델 종류를 그대로, 신발은 늘 그대로")
+    void laidConfidentKeepsModel() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.1f, 0.99f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.8, 0.05, 0.1, 0.4, 0.6),
+                new Detection("shoes", 0.3, 0.6, 0.6, 0.3, 0.3));
+        var gs = service.inspect(photo, "laid", null).garments();
+        assertThat(gs).extracting(InspectResult.Garment::name).containsExactly("셔츠", "신발");
+    }
+
+    @Test
+    @DisplayName("사진 전체를 한 벌로 볼 때(종류 모름)는 글 벡터로 종류를 정한다")
+    void wholeUsesText() {
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.99f, 0.1f, 0f});
+        var g = service.inspect(photo, "laid", null).garments().getFirst();
+        assertThat(g.category()).isEqualTo("top");
+        assertThat(g.name()).isEqualTo("셔츠");
+    }
+
+    @Test
+    @DisplayName("코트·재킷이 애매한 겉옷은 글 벡터가 재킷이라 해도 겉옷 그대로")
+    void outerUnsureStays() {
+        assertThat(GarmentKind.of("outer_unsure").name()).isEqualTo("겉옷");
+        embedder.ready = true;
+        embedder.textCheck = textCheck();
+        embedder.vectors = List.of(new float[] {0.7f, 0.7f, 0f});
+        var slots = new java.util.ArrayList<ClothesInspectService.Slot>(List.of(new ClothesInspectService.Slot(
+                GarmentKind.of("outer_unsure"), new InspectResult.Box(0.1, 0.1, 0.5, 0.5), 0.5, false)));
+        service.textCheck(new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), slots, "laid");
+        assertThat(slots.getFirst().kind.name()).isEqualTo("겉옷");
+    }
+
+    /** 셔츠·원피스·none만 있는 글 벡터(가산점 시험용). */
+    private com.fashionagent.clothesstate.embed.GarmentTextCheck shirtDressCheck() {
+        String json = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"none","vector":[0,0,1]}]}""";
+        return new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(json.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, ""));
+    }
+
+    @Test
+    @DisplayName("글 벡터 1·2등이 아주 가까우면 모델이 고른 큰 분류(원피스)를 따른다")
+    void closeTextScoresFavorModel() {
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        // shirt 0.70, dress 0.69: 차이 0.01 < 가산점 0.01 + 0.6×0.005
+        embedder.vectors = List.of(new float[] {0.70f, 0.69f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("dress", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("dress");
+    }
+
+    @Test
+    @DisplayName("글 벡터가 다른 종류를 뚜렷이 고르면 가산점이 있어도 글 벡터를 따른다")
+    void clearTextScoresStillWin() {
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        embedder.vectors = List.of(new float[] {0.80f, 0.60f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("dress", 0.6, 0.2, 0.1, 0.5, 0.8));
+        var g = service.inspect(photo, "worn", "front").garments().getFirst();
+        assertThat(g.category()).isEqualTo("top");
+    }
+
+    @Test
+    @DisplayName("종류 벡터 파일이 있으면 종류는 그 파일로 고르고, 옷 아님 판단은 글 벡터로 한다")
+    void kindVectorsPickKindOnly() {
+        String text = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]},
+                 {"name":"none","vector":[0,0,1]}]}""";
+        // 종류 벡터: shirt·dress가 뒤바뀌고 none이 아주 큼(쓰이면 옷이 빠짐)
+        String kind = """
+                {"prompts":[{"name":"shirt","vector":[0,1,0]},{"name":"dress","vector":[1,0,0]},
+                 {"name":"none","vector":[5,5,5]}]}""";
+        embedder.ready = true;
+        embedder.textCheck = new com.fashionagent.clothesstate.embed.GarmentTextCheck(
+                new org.springframework.core.io.ByteArrayResource(text.getBytes()),
+                new org.springframework.core.io.ByteArrayResource(kind.getBytes()),
+                new com.fashionagent.clothesstate.embed.TextCheckProperties("x", 0.03, 0.7, 0.9, 0.01, 0.005, "y"));
+        embedder.vectors = List.of(new float[] {0.99f, 0.1f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("skirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+        var gs = service.inspect(photo, "worn", "front").garments();
+        assertThat(gs).hasSize(1);
+        assertThat(gs.getFirst().category()).isEqualTo("dress");
+    }
+
+    /** So400m 보조 경로 시험용: 늘 dress 벡터를 주는 가짜 서버. */
+    private com.sun.net.httpserver.HttpServer dressServer(java.util.concurrent.atomic.AtomicInteger calls) throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/embed", ex -> {
+            calls.incrementAndGet();
+            ex.getRequestBody().readAllBytes();
+            byte[] b = "{\"vector\":[0,1,0]}".getBytes();
+            ex.sendResponseHeaders(200, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private com.fashionagent.clothesstate.embed.So400mAssist dressAssist(com.sun.net.httpserver.HttpServer server) {
+        String probe = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
+        return new com.fashionagent.clothesstate.embed.So400mAssist(
+                new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:" + server.getAddress().getPort(),
+                        "x", java.time.Duration.ofMillis(800), 0.7, 0.015, 3, 0.03),
+                new org.springframework.core.io.ByteArrayResource(probe.getBytes()));
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 확신도 낮고 종류 점수가 붙어 있으면 So400m이 고른 종류로 바꾼다")
+    void so400mRepicksCloseCall() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            embedder.ready = true;
+            embedder.textCheck = shirtDressCheck();
+            // shirt 0.700, dress 0.695: 차이 0.005 < 0.015 → 지금 결과는 셔츠, So400m은 원피스
+            embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+            service.setAssist(dressAssist(server));
+            var g = service.inspect(photo, "worn", "front").garments().getFirst();
+            assertThat(g.category()).isEqualTo("dress");
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 확신도 0.7 이상이거나 점수 차이가 크면 묻지 않는다")
+    void so400mSkipsClearOrConfident() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            embedder.ready = true;
+            embedder.textCheck = shirtDressCheck();
+            service.setAssist(dressAssist(server));
+            // 점수 차이 0.2 → 묻지 않고 셔츠
+            embedder.vectors = List.of(new float[] {0.80f, 0.60f, 0f});
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+            // 확신도 0.8(입은 사진 0.9 미만이라 글 벡터는 쓰지만 So400m은 0.7 미만만) → 묻지 않음
+            embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+            garments.next = List.of(new Detection("tshirt", 0.8, 0.2, 0.1, 0.5, 0.8));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+            assertThat(calls.get()).isZero();
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 보조 경로: 서버가 꺼져 있으면 지금 결과(글 벡터) 그대로")
+    void so400mDownKeepsCurrent() {
+        String probe = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
+        embedder.ready = true;
+        embedder.textCheck = shirtDressCheck();
+        embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+        service.setAssist(new com.fashionagent.clothesstate.embed.So400mAssist(
+                new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:9", "x",
+                        java.time.Duration.ofMillis(300), 0.7, 0.015, 3, 0.03),
+                new org.springframework.core.io.ByteArrayResource(probe.getBytes())));
+        try {
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+        } finally {
+            service.setAssist(null);
+        }
+    }
+
+    private ClothesInspectService wearService(com.fashionagent.clothesstate.FakeWearChecker wear) {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
+        return new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder,
+                pattern, patternGpt, wear, ClothesInspectService.DEFAULT_WEAR);
+    }
+
+    @Test
+    @DisplayName("옷 실수: 입은 사진 + 동의일 때만 옷마다(신발 빼고) 묻고, 0.7 이상만 wearIssues로")
+    void wearIssues() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("tag_out", 0.9, "m"),
+                new com.fashionagent.clothesstate.wear.WearChecker.Issue("inside_out", 0.5, "m"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.9, 0.2, 0.2, 0.6, 0.4),
+                new Detection("pants", 0.9, 0.25, 0.55, 0.5, 0.4), new Detection("shoes", 0.9, 0.3, 0.92, 0.4, 0.08));
+        detector.next = List.of();
+        var s = wearService(wear);
+
+        InspectResult r = s.inspect(photo, "worn", "back", true);
+        assertThat(wear.asked).containsExactlyInAnyOrder("tshirt/back", "pants/back");
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::kind).containsExactly("tag_out", "tag_out");
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::garmentId).containsExactly("g1", "g2");
+        assertThat(r.wearIssues().getFirst().category()).isEqualTo("top");
+        assertThat(r.wearIssues().getFirst().checkedBy()).isEqualTo("gpt");
+
+        wear.asked.clear();
+        assertThat(s.inspect(photo, "worn", "front", false).wearIssues()).isNull();
+        assertThat(s.inspect(photo, "laid", null, true).wearIssues()).isNull();
+        assertThat(wear.asked).isEmpty();
+    }
+
+    @Test
+    @DisplayName("옷 실수: 단추 어긋남은 단추 있는 옷만, 답이 하나도 없으면 null(확인 못 함), 옷을 못 찾으면 안 보냄")
+    void wearIssueFilters() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("buttons_misaligned", 0.9, "m"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.9, 0.2, 0.3, 0.6, 0.3),
+                new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var s = wearService(wear);
+        assertThat(s.inspect(photo, "worn", "front", true).wearIssues())
+                .singleElement().satisfies(w -> assertThat(w.kind()).isEqualTo("buttons_misaligned"));
+
+        wear.answer = null;
+        assertThat(s.inspect(photo, "worn", "front", true).wearIssues()).isNull();
+
+        garments.next = List.of();
+        wear.asked.clear();
+        s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).isEmpty();
+    }
+
+    /** 정해 둔 확률을 돌려주는 옷 실수 모델. */
+    private static com.fashionagent.clothesstate.wear.ModelWearChecker fixedWearModel(java.util.Map<String, Double> probs) {
+        var wp = new com.fashionagent.clothesstate.wear.WearModelProperties(true, "a", "b", "c", "wear3", 0.8, 0.8, 0.7,
+                0.95);
+        return new com.fashionagent.clothesstate.wear.ModelWearChecker(wp, null, null, null) {
+            @Override
+            public boolean ready() {
+                return true;
+            }
+
+            @Override
+            public java.util.Map<String, Double> probabilities(java.awt.image.BufferedImage img, double[] box,
+                    String category, String name, String view) {
+                return probs;
+            }
+        };
+    }
+
+    private ClothesInspectService learnService(com.fashionagent.clothesstate.FakeWearChecker wear,
+            com.fashionagent.clothesstate.wear.ModelWearChecker model, com.fashionagent.clothesstate.wear.WearTrust trust) {
+        var gpt = new GptCheckProperties("k", "m", "http://localhost", java.time.Duration.ofSeconds(1), 0.3, 512, 64, 0,
+                0.3, 0.25, tmp.toString(), 30, java.time.Duration.ofSeconds(1));
+        return new ClothesInspectService(props, detector, garments, gpt, verifier, new CandidateStore(gpt), embedder,
+                pattern, patternGpt, wear, ClothesInspectService.DEFAULT_WEAR, model, trust);
+    }
+
+    private static com.fashionagent.clothesstate.wear.WearLearnProperties learnProps() {
+        return new com.fashionagent.clothesstate.wear.WearLearnProperties(true, 200, 50, 10, 0.95, 0.9, 0.1, 0.9, 0.05,
+                0.1, "");
+    }
+
+    @Test
+    @DisplayName("GPT에게 배우기: 모델 확률과 GPT 답을 기록하고, GPT가 실수라 한 조각은 학습 후보로 저장")
+    void wearLearn() throws Exception {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        wear.answer = List.of(new com.fashionagent.clothesstate.wear.WearChecker.Issue("buttons_misaligned", 0.9, "gpt-x"));
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var trust = new com.fashionagent.clothesstate.wear.WearTrust(learnProps(), tmp.resolve("wear-trust.json"), "wear3",
+                () -> 0.5);
+        var s = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.02, "backwards", 0.0)), trust);
+
+        InspectResult r = s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).hasSize(1);
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::checkedBy).containsExactly("gpt");
+        assertThat(trust.stats("buttons_misaligned").samples()).isEqualTo(1);
+        assertThat(trust.stats("buttons_misaligned").positives()).isEqualTo(1);
+        assertThat(trust.stats("backwards").samples()).isEqualTo(1);
+        assertThat(tmp.resolve("wear-trust.json")).exists();
+        try (var files = java.nio.file.Files.walk(tmp)) {
+            var saved = files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("wear-") && !n.equals("wear-trust.json")).sorted().toList();
+            // 단추: GPT가 실수라 함 → 저장. 앞뒤: 둘 다 확신하는 정상, 난수 0.5 ≥ 10% → 저장 안 함
+            assertThat(saved).hasSize(2).allMatch(n -> n.startsWith("wear-buttons_misaligned-"));
+        }
+    }
+
+    @Test
+    @DisplayName("점점 덜 묻기: 볼 수 있는 실수를 모두 믿게 되고 모델이 확신하면 GPT에게 안 묻고 모델 답만")
+    void wearSkip() {
+        var wear = new com.fashionagent.clothesstate.FakeWearChecker();
+        garments.ready = true;
+        garments.next = List.of(new Detection("shirt", 0.9, 0.2, 0.3, 0.6, 0.35));
+        detector.next = List.of();
+        var trust = new com.fashionagent.clothesstate.wear.WearTrust(learnProps(), null, "wear3", () -> 0.5);
+        for (String k : List.of("buttons_misaligned", "backwards")) {
+            for (int i = 0; i < 60; i++) {
+                trust.record(k, 0.01, false);
+            }
+            for (int i = 0; i < 12; i++) {
+                trust.record(k, 0.97, true);
+            }
+        }
+        var s = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.95, "backwards", 0.0)), trust);
+        InspectResult r = s.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).isEmpty();
+        assertThat(r.wearIssues()).extracting(InspectResult.WearIssue::kind, InspectResult.WearIssue::checkedBy)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("buttons_misaligned", "model"));
+
+        // 모델이 애매하면(0.5) 다시 물음
+        var s2 = learnService(wear, fixedWearModel(java.util.Map.of("buttons_misaligned", 0.5, "backwards", 0.0)), trust);
+        s2.inspect(photo, "worn", "front", true);
+        assertThat(wear.asked).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("입은 사진에서 위쪽에 있거나 큰 '신발'은 상의로(가까이 찍은 셔츠를 신발로 봄), 아래 작은 신발은 그대로")
+    void shoesUpTop() {
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.65, 0.03, 0.02, 0.96, 0.79), "worn").name())
+                .isEqualTo("상의");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.32, 0.10, 0.10, 0.13, 0.13), "worn").category())
+                .isEqualTo("top");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.3, 0.9, 0.4, 0.08), "worn").category())
+                .isEqualTo("shoes");
+        assertThat(ClothesInspectService.kindOf(new Detection("shoes", 0.9, 0.1, 0.1, 0.5, 0.5), "laid").category())
+                .isEqualTo("shoes");
+    }
+
+    @Test
+    @DisplayName("옷 실수 조각: 사진 위쪽은 회색으로 가리고, 긴 변 768 이하, 다 가려지면 null")
+    void wearCrop() {
+        var img = new java.awt.image.BufferedImage(1000, 2000, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var g = img.createGraphics();
+        g.setColor(Color.RED);
+        g.fillRect(0, 0, 1000, 2000);
+        g.dispose();
+        var piece = ClothesInspectService.wearCrop(img, new InspectResult.Box(0.2, 0.2, 0.6, 0.5), 0.25, 768);
+        assertThat(Math.max(piece.getWidth(), piece.getHeight())).isLessThanOrEqualTo(768);
+        assertThat(new Color(piece.getRGB(piece.getWidth() / 2, 2))).isEqualTo(new Color(128, 128, 128));
+        assertThat(new Color(piece.getRGB(piece.getWidth() / 2, piece.getHeight() - 3)).getRed()).isGreaterThan(200);
+        assertThat(ClothesInspectService.wearCrop(img, new InspectResult.Box(0.2, 0.0, 0.6, 0.2), 0.25, 768)).isNull();
+    }
+
+    @Test
+    @DisplayName("옷 실수: 모델과 GPT 결과를 합치고 같은 옷·같은 실수는 모델 것 하나, 둘 다 없으면 null")
+    void mergeWear() {
+        var m = List.of(new InspectResult.WearIssue("tag_out", "g1", "top", 0.9, "model"));
+        var g = List.of(new InspectResult.WearIssue("tag_out", "g1", "top", 0.8, "gpt"),
+                new InspectResult.WearIssue("inside_out", "g1", "top", 0.8, "gpt"));
+        assertThat(ClothesInspectService.mergeWear(m, g)).extracting(InspectResult.WearIssue::checkedBy)
+                .containsExactly("model", "gpt");
+        assertThat(ClothesInspectService.mergeWear(null, null)).isNull();
+        assertThat(ClothesInspectService.mergeWear(List.of(), null)).isEmpty();
+    }
+}

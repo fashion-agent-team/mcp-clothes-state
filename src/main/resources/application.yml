@@ -1,0 +1,96 @@
+server:
+  port: 8093
+
+spring:
+  application:
+    name: mcp-clothes-state
+  ai:
+    mcp:
+      server:
+        name: mcp-clothes-state
+        version: 0.1.0
+        type: sync
+        protocol: streamable
+        streamable-http:
+          mcp-endpoint: /mcp
+        instructions: 옷 사진에서 옷 한 벌마다 종류·색·얼룩·찢어짐을 찾는 서버입니다(clothes_inspect). 옷 추천 2단계에서 사진마다 부릅니다. 같이 입을 옷들의 색 조합·자리에 맞는 색은 outfit_color_check로 봅니다.
+
+# 기준값: 0.5 바로 알림 / 0.2~0.5 GPT 확인 (정지원 2026-11-09, docs/gpt-check.md)
+clothes:
+  model: ${CLOTHES_MODEL:classpath:models/yolo26n_v6.onnx}
+  model-version: yolo26n-v6
+  tell-threshold: 0.5
+  ask-threshold: 0.2
+  max-image-bytes: 8MB
+  # 옷 종류(셔츠·티셔츠·니트·가디건·자켓·코트·조끼·바지·반바지·치마·원피스·신발). Fashionpedia(CC BY 4.0)로 학습. 파일이 없으면 사진 전체를 옷 한 벌로 봄.
+  garment-model: ${CLOTHES_GARMENT_MODEL:classpath:models/yolo26n_fashion12.onnx}
+  garment-model-version: yolo26n-fashion12e
+  # 학습 클래스 순서. 5종 모델이면 top,bottom,outer,dress,shoes
+  garment-classes: shirt,tshirt,sweater,cardigan,jacket,coat,vest,pants,shorts,skirt,dress,shoes
+  # 옷 색 인식(흰색·검정·하늘색 등 K-Fashion 20색). AI Hub K-Fashion 옷 17만 벌로 학습(training/color-model). 파일이 없으면 픽셀 규칙
+  color-model: ${CLOTHES_COLOR_MODEL:classpath:models/color20_cnn.onnx}
+  garment-threshold: 0.4
+  laid-garment-threshold: 0.25
+  # 무늬 8종(plain·stripe·check·floral·dot·graphic·animal·other). Fashionpedia·Second-Hand Fashion(CC BY 4.0)로 학습.
+  # 1등이 무늬인데 확률이 sure-threshold보다 낮으면 pattern=null(모름). 파일이 없으면 pattern 없이 응답
+  pattern:
+    model: ${CLOTHES_PATTERN_MODEL:classpath:models/yolo26n_pattern8.onnx}
+    version: yolo26n-pattern8
+    classes: animal,check,dot,floral,graphic,other,plain,stripe
+    sure-threshold: 0.7
+    # FashionSigLIP + LoRA 무늬 모델(약 350MB, AI Hub K-Fashion 포함 학습)은 레포에 넣지 않고 젯슨 파일 경로로 줌.
+    # 있으면 LoRA 0.7 + 위 모델 0.3으로 섞고 기준 0.6. "모름"이면 입은 옷도 GPT(detail high, 긴 변 768)에게 묻고 3등 안일 때만 받음
+    lora-model: ${CLOTHES_PATTERN_LORA_MODEL:}
+    lora-weight: 0.7
+    lora-sure-threshold: 0.6
+  # 옷마다 이미지 벡터(옷장에서 같은 옷 판단용, 이슈 #15). Marqo FashionSigLIP vision ONNX(Apache-2.0, 372MB)는 레포에 넣지 않고
+  # 경로로 받음. 비어 있거나 파일이 없으면 embedding 없이 응답
+  embed:
+    model: ${CLOTHES_EMBED_MODEL:}
+    version: marqo-fashionSigLIP
+  # 옷 벡터를 옷 이름 글 벡터(미리 계산, 레포에 있음)와 견줘 종류를 다시 보고 빈 벽·바닥을 뺌. 옷 벡터 모델이 있을 때만 동작.
+  # 근거: docs/training-log.md "글 벡터로 종류 다시 보기"(2026-11-12)
+  text-check:
+    vectors: ${CLOTHES_TEXT_VECTORS:classpath:models/garment-text-fsiglip.json}
+    none-margin: 0.03
+    keep-laid: 0.7
+    keep-worn: 0.9
+    # 다시 고를 때 모델이 고른 큰 분류에 주는 가산점. 글 벡터만 쓸 때는 0.01 / 0.005가 좋고(#30), probe_v4를 쓰면 0이 가장 좋음. 근거 docs/training-log.md 2026-11-16
+    model-bonus: ${CLOTHES_TEXT_MODEL_BONUS:0}
+    model-bonus-per-confidence: ${CLOTHES_TEXT_MODEL_BONUS_PER_CONF:0}
+    # 종류 다시 고르기에만 쓰는 학습 벡터(probe_v4, DeepFashion2 포함 학습: 학교 프로젝트 전용). 비우면 위 글 벡터.
+    kind-vectors: ${CLOTHES_KIND_VECTORS:classpath:models/garment-kind-probe-v4.json}
+  # 아주 애매한 옷(확신도 < 0.7, 종류 점수 1·2등 차이 < 0.015)만 SigLIP2 So400m 벡터 서버(so400m-embed/)로 다시 고름.
+  # 주소가 비면 꺼짐. 느리거나 실패하면 지금 결과 그대로. 근거 training/probe/README.md 12차(2026-11-17)
+  so400m:
+    url: ${CLOTHES_SO400M_URL:}
+    probe: ${CLOTHES_SO400M_PROBE:classpath:models/garment-kind-so400m-probe.json}
+    timeout: ${CLOTHES_SO400M_TIMEOUT:800ms}
+    max-confidence: 0.7
+    max-gap: 0.015
+    max-boxes: 3
+  # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
+  gpt:
+    api-key: ${OPENAI_API_KEY:}
+    model: ${CLOTHES_GPT_MODEL:gpt-4.1-mini}
+    # 애매한 얼룩 하나를 GPT에게 기다리는 시간. 넘기면 모델 결과로 답함(2026-11-13 3초 → 1.5초, 사진 답이 느려서)
+    defect-timeout: ${CLOTHES_GPT_DEFECT_TIMEOUT:1500ms}
+    # GPT가 결함이라고 한 조각만 저장(다시 학습할 후보). 비우면 저장 안 함
+    candidate-dir: ${CLOTHES_CANDIDATE_DIR:data/train-candidates}
+  # 입은 사진 옷 실수(뒤집어 입음·앞뒤 바뀜·단추 어긋남·택) GPT 확인. 키는 위 gpt.api-key를 같이 씀. allowGpt=true일 때만
+  wear-check:
+    enabled: ${CLOTHES_WEAR_CHECK:true}
+    model: ${CLOTHES_WEAR_MODEL:}
+  # 입은 사진 옷 실수를 우리 모델로(택·단추·뒤집힘, 합성 데이터로 학습, training/wear). 사진을 밖으로 안 보내 동의 없이도 돌림
+  wear-model:
+    enabled: ${CLOTHES_WEAR_MODEL_ON:true}
+  # 옷 실수를 GPT에게 배우며 점점 덜 묻기(2026-11-16): GPT 답·모델 확률 기록, 배울 조각 저장(위 candidate-dir, 30일),
+  # 모델을 믿게 된 실수는 모델이 확신할 때 GPT를 건너뜀(5%는 계속 물음). 동의(allowGpt)했을 때만
+  wear-learn:
+    enabled: ${CLOTHES_WEAR_LEARN:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

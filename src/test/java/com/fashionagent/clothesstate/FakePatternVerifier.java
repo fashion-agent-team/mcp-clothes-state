@@ -11,6 +11,7 @@ public class FakePatternVerifier implements PatternVerifier {
     public int calls = 0;
     public int lastWidth = -1;
     public boolean lastHigh = false;
+    public BufferedImage lastImage;
 
     @Override
     public boolean ready() {
@@ -27,6 +28,7 @@ public class FakePatternVerifier implements PatternVerifier {
         lastHigh = high;
         calls++;
         lastWidth = garment.getWidth();
+        lastImage = garment;
         return answer == null ? null : new Answer(answer, 0.9, "fake-gpt");
     }
 }

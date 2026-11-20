@@ -114,6 +114,58 @@ class ClothesInspectServiceTest {
     }
 
     @Test
+    @DisplayName("입은 사진 얼룩 조각이 위로 넓어져도 얼굴 쪽(위 25%)은 회색으로 가려서 보냄")
+    void wornDefectCropHidesFace() {
+        verifier.ready = true;
+        // 윗변 0.26(보내는 후보)인데 30% 여백과 최소 64px 때문에 조각이 0.25 위로 올라감
+        detector.next = List.of(new Detection("stain", 0.41, 0.4, 0.26, 0.02, 0.02));
+        String bright = Photos.jpeg(new Color(250, 250, 250));
+        service.inspect(bright, "worn", "front", true);
+        assertThat(verifier.crops).singleElement().satisfies(c -> {
+            assertThat(new Color(c.getRGB(c.getWidth() / 2, 0))).isEqualTo(new Color(128, 128, 128));
+            assertThat(new Color(c.getRGB(c.getWidth() / 2, c.getHeight() - 1)).getRed()).isGreaterThan(200);
+        });
+        // 내려놓은 사진은 가리지 않음
+        verifier.crops.clear();
+        service.inspect(bright, "laid", null, true);
+        assertThat(verifier.crops).singleElement()
+                .satisfies(c -> assertThat(new Color(c.getRGB(c.getWidth() / 2, 0)).getRed()).isGreaterThan(200));
+    }
+
+    @Test
+    @DisplayName("입은 사진 무늬를 GPT에게 물을 때 옷 박스 중 얼굴 쪽(위 25%)은 회색으로 가림")
+    void wornPatternCropHidesFace() {
+        String photo = Photos.jpeg(new Color(250, 250, 250));
+        pattern.ready = true;
+        pattern.mixed = true;
+        pattern.answer = null;
+        pattern.ranked = List.of("check", "dot", "stripe");
+        patternGpt.ready = true;
+        garments.ready = true;
+        // 상의 박스가 사진 위 10%부터 시작(턱·얼굴이 걸칠 수 있음)
+        garments.next = List.of(new Detection("shirt", 0.91, 0.2, 0.10, 0.6, 0.60));
+        service.inspect(photo, "worn", "front", true);
+        var sent = patternGpt.lastImage;
+        assertThat(sent).isNotNull();
+        assertThat(new Color(sent.getRGB(sent.getWidth() / 2, 1))).isEqualTo(new Color(128, 128, 128));
+        assertThat(new Color(sent.getRGB(sent.getWidth() / 2, sent.getHeight() - 2)).getRed()).isGreaterThan(200);
+    }
+
+    @Test
+    @DisplayName("hideFace: 위쪽 비율만 회색, 원본은 그대로")
+    void hideFace() {
+        var img = new java.awt.image.BufferedImage(100, 200, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 100, 200);
+        g.dispose();
+        var out = ClothesInspectService.hideFace(img, 0.25);
+        assertThat(new Color(out.getRGB(50, 49))).isEqualTo(new Color(128, 128, 128));
+        assertThat(new Color(out.getRGB(50, 50))).isEqualTo(Color.WHITE);
+        assertThat(new Color(img.getRGB(50, 10))).isEqualTo(Color.WHITE);
+    }
+
+    @Test
     @DisplayName("결함 조각: 박스 30% 넓힘, 64px보다 작으면 늘림, 긴 변 512 이하")
     void defectCrop() {
         var img = new java.awt.image.BufferedImage(2000, 1000, java.awt.image.BufferedImage.TYPE_INT_RGB);

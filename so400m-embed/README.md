@@ -40,7 +40,7 @@ mcp-clothes-state는 모델 서버 젯슨에, so400m-embed는 GPU 메모리에 �
 
 `CLOTHES_SO400M_URL`을 비우면 보조 경로가 꺼져요(코드 기본값). 기다리는 시간은 `CLOTHES_SO400M_TIMEOUT`(기본 800ms)으로 바꿔요. 이 서버가 꺼져 있어도 clothes-state는 원래 결과로 답해요.
 
-앱 레포의 `docs/infra/jetson/docker-compose.yml`에는 아직 이 서비스가 없어요. 젯슨에 있는 파일이 기준이에요.
+앱 레포의 `docs/infra/jetson/docker-compose.yml`(앱 서버)과 `docs/infra/jetson/node/docker-compose.yml`(모델 서버)이 젯슨에 있는 파일과 같아요. 레포에서는 Tailscale IP를 `.env`의 `APP_TS_IP`, `CLOTHES_SO400M_URL`로 받아요.
 
 ## 확인
 ```bash

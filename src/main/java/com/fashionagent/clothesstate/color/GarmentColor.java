@@ -480,6 +480,27 @@ public final class GarmentColor {
         };
     }
 
+    /**
+     * 색 계열(black…purple, So400m 색 분류기 답)로 색 이름을 정합니다. 밝기(tone)와 연한 색 여부는 옷 픽셀 중간값으로 봅니다
+     * ({@link #fromModel}과 같은 규칙).
+     */
+    public static Result fromFamily(String family, int pixelRgb) {
+        float[] hsv = pixelRgb < 0 ? new float[] {0, 0, 0.5f}
+                : java.awt.Color.RGBtoHSB((pixelRgb >> 16) & 0xFF, (pixelRgb >> 8) & 0xFF, pixelRgb & 0xFF, null);
+        double s = hsv[1];
+        double v = hsv[2];
+        String tone = v < 0.35 ? "dark" : v > 0.75 ? "light" : "mid";
+        String vivid = v < 0.35 ? "dark" : s < 0.4 && v > 0.7 ? "light" : "mid";
+        return switch (family) {
+            case "white" -> new Result("white", "흰색", "light");
+            case "black" -> new Result("black", "검정", "dark");
+            case "beige" -> new Result("beige", "베이지", "light");
+            case "navy" -> new Result("navy", "네이비", "dark");
+            case "gray", "brown", "khaki" -> new Result(family, korean(family, tone), tone);
+            default -> vivid(family, vivid);
+        };
+    }
+
     /** 강한 색 이름. 연한 색(light)이면 픽셀 규칙과 같은 연한 색 이름(하늘색·연분홍·연한 ~)이라 색 조합에서 차분한 색으로 봅니다. */
     private static Result vivid(String family, String tone) {
         return "light".equals(tone) ? new Result(family, paleName(family), "light")

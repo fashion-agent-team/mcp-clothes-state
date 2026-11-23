@@ -23,7 +23,7 @@ import tools.jackson.databind.node.ObjectNode;
  * 기록은 확률과 GPT 답(참/거짓)뿐이고 사진·사용자 정보는 없습니다.
  */
 @Component
-public class WearTrust {
+public final class WearTrust {
 
     private static final Logger log = LoggerFactory.getLogger(WearTrust.class);
 

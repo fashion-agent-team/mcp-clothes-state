@@ -1,5 +1,6 @@
 package com.fashionagent.clothesstate.detect;
 
+import ai.onnxruntime.OrtException;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import org.springframework.core.io.Resource;
@@ -27,7 +28,7 @@ public class OnnxDefectDetector implements DefectDetector, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() throws OrtException {
         yolo.close();
     }
 }

@@ -12,6 +12,7 @@ public class FakeVerifier implements CropVerifier {
     public boolean ready = false;
     public Function<String, Verdict> answer = kind -> new Verdict("none", 0.9, "fake");
     public final List<int[]> sizes = new ArrayList<>();
+    public final List<BufferedImage> crops = new ArrayList<>();
 
     @Override
     public boolean ready() {
@@ -21,6 +22,7 @@ public class FakeVerifier implements CropVerifier {
     @Override
     public synchronized Verdict verify(BufferedImage crop, String modelKind) {
         sizes.add(new int[] {crop.getWidth(), crop.getHeight()});
+        crops.add(crop);
         return answer.apply(modelKind);
     }
 }

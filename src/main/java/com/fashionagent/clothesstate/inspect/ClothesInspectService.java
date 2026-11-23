@@ -269,8 +269,11 @@ public class ClothesInspectService {
         // 무늬(모델 + 애매하면 GPT)는 얼룩 GPT 확인과 상관없어서 동시에 시작합니다. 둘 다 GPT를 부르면 예전엔 차례로 기다렸습니다.
         // 두 무늬 모델을 섞어 쓰면 입은 사진도 "모름"인 옷만 GPT에게 물음(2026-11-17 정지원, 입은 옷 무늬 0.845 → 0.900)
         boolean askPatternGpt = (m.equals("laid") || patterns.mixed()) && Boolean.TRUE.equals(allowGpt);
+        // GPT에게 보내는 조각은 입은 사진이면 얼굴 쪽(위)을 회색으로 가린 사진에서 자릅니다(2026-11-20, 얼굴은 외부로 안 보냄).
+        // 옷 실수 확인(wearCrop)과 같은 높이를 씁니다. 우리 모델은 원본 사진을 그대로 봅니다.
+        BufferedImage gptImg = Boolean.TRUE.equals(allowGpt) && m.equals("worn") ? hideFace(img, faceLine(v)) : img;
         CompletableFuture<String[][]> patternsLater = CompletableFuture.supplyAsync(
-                () -> patterns(img, slots, askPatternGpt), WORKERS);
+                () -> patterns(img, gptImg, slots, askPatternGpt), WORKERS);
         for (Detection d : join(found)) {
             if (d.confidence() >= props.tellThreshold()) {
                 Slot s = owner(slots, d);
@@ -282,7 +285,7 @@ public class ClothesInspectService {
         }
         long tModel = System.nanoTime();
         // 2) 애매한 것은 결함 둘레 조각만 GPT에게 물음(동시에). 답이 없으면 null.
-        List<CropVerifier.Verdict> verdicts = askGpt(img, m, Boolean.TRUE.equals(allowGpt) ? unsure : List.of(),
+        List<CropVerifier.Verdict> verdicts = askGpt(gptImg, m, Boolean.TRUE.equals(allowGpt) ? unsure : List.of(),
                 unsure.size());
         Map<Slot, List<InspectResult.Candidate>> candidates = new LinkedHashMap<>();
         Slot topCandidate = null;
@@ -640,7 +643,8 @@ public class ClothesInspectService {
      * 모델 답, 기준 미만인 무늬만 GPT(detail high)에게 묻고, GPT 답이 모델 1~3등 안이면 GPT 답, 아니면 모델 1등을 씁니다.
      * 이름 확신(PATTERN_NAME_SURE)·호피 다시 묻기는 YOLO 하나일 때 규칙이라 쓰지 않습니다.
      */
-    private String[][] patterns(BufferedImage img, List<Slot> slots, boolean askGpt) {
+    /** @param gptImg GPT에게 보낼 조각을 자를 사진(입은 사진이면 얼굴 쪽을 가린 것). 모델은 img를 봅니다. */
+    private String[][] patterns(BufferedImage img, BufferedImage gptImg, List<Slot> slots, boolean askGpt) {
         String[][] out = new String[slots.size()][4]; // {무늬, checkedBy, 모델 1등, 1등 확률}
         if (!patterns.ready()) {
             return out;
@@ -689,7 +693,7 @@ public class ClothesInspectService {
         try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<PatternVerifier.Answer>> futures = new ArrayList<>();
             for (int j = 0; j < unsure.size(); j++) {
-                BufferedImage piece = OpenAiPatternVerifier.shrink(crop(img, slots.get(unsure.get(j)).box),
+                BufferedImage piece = OpenAiPatternVerifier.shrink(crop(gptImg, slots.get(unsure.get(j)).box),
                         mixed ? OpenAiPatternVerifier.MAX_SIDE_HIGH : OpenAiPatternVerifier.MAX_SIDE);
                 PatternClassifier.Result mine = unsureResults.get(j);
                 futures.add(pool.submit(() -> {
@@ -1086,6 +1090,31 @@ public class ClothesInspectService {
     static String position(InspectResult.Box b) {
         double cx = b.x() + b.w() / 2;
         return cx < 0.4 ? "left" : cx > 0.6 ? "right" : "center";
+    }
+
+    /** 입은 사진에서 얼굴이 들어갈 수 있는 높이(사진 높이 비율). 옷 실수 확인과 같게 앞 0.25, 뒤 0.12. */
+    private double faceLine(String view) {
+        if (wearProps == null) {
+            return gpt.wornSkipTop();
+        }
+        return "back".equals(view) ? wearProps.backHideTop() : wearProps.frontHideTop();
+    }
+
+    /**
+     * 사진 높이의 hideTop 비율보다 위를 회색으로 칠한 사본. 입은 사진의 조각을 GPT에게 보낼 때 씁니다.
+     * 조각을 자를 때 여백·최소 크기 때문에 위로 넓어져도 얼굴 쪽은 이미 가려져 있습니다.
+     */
+    static BufferedImage hideFace(BufferedImage img, double hideTop) {
+        BufferedImage out = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(img, 0, 0, null);
+        int hideY = clamp((int) Math.ceil(hideTop * img.getHeight()), 0, img.getHeight());
+        if (hideY > 0) {
+            g.setColor(new java.awt.Color(128, 128, 128));
+            g.fillRect(0, 0, img.getWidth(), hideY);
+        }
+        g.dispose();
+        return out;
     }
 
     private static BufferedImage crop(BufferedImage img, InspectResult.Box b) {

@@ -106,4 +106,28 @@ class So400mAssistTest {
         var b = assist("http://127.0.0.1:9", 300);
         assertThat(b.pick(IMG, List.<double[]>of(new double[] {0.1, 0.1, 0.5, 0.5}))).containsExactly((String) null);
     }
+
+    @Test
+    @DisplayName("박스 조각은 측정 때와 같게 224×224 PNG(무손실)로 보낸다")
+    void sendsLosslessPng() throws Exception {
+        var seen = new java.util.concurrent.atomic.AtomicReference<String>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/embed", ex -> {
+            seen.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] b = "{\"vector\":[0,1,0]}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.start();
+        var a = assist("http://127.0.0.1:" + server.getAddress().getPort(), 800);
+        assertThat(a.pick(IMG, List.<double[]>of(new double[] {0.1, 0.1, 0.5, 0.5}))).containsExactly("dress");
+        String b64 = seen.get().replaceAll(".*\"imageBase64\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        byte[] png = java.util.Base64.getDecoder().decode(b64);
+        assertThat(png[1]).isEqualTo((byte) 'P');
+        assertThat(png[2]).isEqualTo((byte) 'N');
+        var im = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png));
+        assertThat(im.getWidth()).isEqualTo(224);
+        assertThat(im.getHeight()).isEqualTo(224);
+    }
 }

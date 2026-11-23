@@ -40,6 +40,8 @@ public class So400mAssist {
     private final List<float[]> vectors = new ArrayList<>();
     private final HttpClient http;
     private final JsonMapper json = JsonMapper.builder().build();
+    /** 벡터 서버 입력 크기(So400m/14-224). */
+    static final int SIZE = 224;
 
     public So400mAssist(So400mAssistProperties props, Resource probe) {
         this.props = props;
@@ -137,15 +139,21 @@ public class So400mAssist {
     }
 
     private float[] embed(BufferedImage img, double[] b) throws IOException, InterruptedException {
+        // 측정·학습 때와 같게: 넓혀 자르고 회색 정사각형 → PIL BICUBIC과 같은 방법으로 224 → PNG(무손실).
+        // JPEG로 보내면 압축 손실 때문에 So400m 벡터가 코사인 0.93~0.98로 달라졌음(2026-11-19 측정).
         int[][] rgb = EmbedInput.squareCrop(img, b[0], b[1], b[2], b[3], props.margin());
-        int side = (int) Math.round(Math.sqrt(rgb[0].length));
-        BufferedImage sq = new BufferedImage(side, side, BufferedImage.TYPE_INT_RGB);
-        for (int i = 0; i < rgb[0].length; i++) {
-            sq.setRGB(i % side, i / side, (rgb[0][i] << 16) | (rgb[1][i] << 8) | rgb[2][i]);
+        float[][] planes = EmbedInput.resize(rgb, SIZE);
+        BufferedImage sq = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB);
+        for (int i = 0; i < SIZE * SIZE; i++) {
+            int r = clamp255(planes[0][i]);
+            int g = clamp255(planes[1][i]);
+            int bl = clamp255(planes[2][i]);
+            sq.setRGB(i % SIZE, i / SIZE, (r << 16) | (g << 8) | bl);
         }
-        ByteArrayOutputStream jpg = new ByteArrayOutputStream();
-        ImageIO.write(sq, "jpg", jpg);
-        String body = json.writeValueAsString(Map.of("imageBase64", Base64.getEncoder().encodeToString(jpg.toByteArray())));
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(sq, "png", png);
+        byte[] bytes = png.toByteArray();
+        String body = json.writeValueAsString(Map.of("imageBase64", Base64.getEncoder().encodeToString(bytes)));
         HttpRequest req = HttpRequest.newBuilder(URI.create(props.url().replaceAll("/+$", "") + "/embed"))
                 .timeout(props.timeout()).header("content-type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build();
@@ -160,6 +168,10 @@ public class So400mAssist {
             f[i] = (float) v.get(i).asDouble();
         }
         return f.length == vectors.getFirst().length ? f : null;
+    }
+
+    private static int clamp255(float v) {
+        return Math.max(0, Math.min(255, Math.round(v)));
     }
 
     /** 이름마다 최대 코사인 중 가장 높은 옷 이름(none·신발 제외). */

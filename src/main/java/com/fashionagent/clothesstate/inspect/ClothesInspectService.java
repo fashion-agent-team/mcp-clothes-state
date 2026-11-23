@@ -328,7 +328,7 @@ public class ClothesInspectService {
             BufferedImage piece = s.whole ? null : crop(img, s.box);
             GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(piece, m);
             String fam = so400mColors.get(s);
-            if (fam != null && piece != null) {
+            if (fam != null && piece != null && assist.overrides(color.colorFamily())) {
                 GarmentColor.Result before = color;
                 color = GarmentColor.fromFamily(fam, GarmentColor.boxRgb(piece, m));
                 if (!before.colorFamily().equals(color.colorFamily())) {

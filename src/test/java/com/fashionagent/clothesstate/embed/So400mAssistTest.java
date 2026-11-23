@@ -53,7 +53,7 @@ class So400mAssistTest {
     }
 
     private static So400mAssist assist(String url, long timeoutMs) {
-        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03, false, "");
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03, false, "", "");
         return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()));
     }
 
@@ -135,7 +135,7 @@ class So400mAssistTest {
             {"families":["red","blue"],"weights":[[1,0,0],[0,1,0]],"bias":[0,0]}""";
 
     private static So400mAssist colorAssist(String url, boolean on) {
-        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, on, "y");
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, on, "y", "");
         return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()), new ByteArrayResource(COLOR.getBytes()));
     }
 
@@ -155,9 +155,19 @@ class So400mAssistTest {
     @Test
     @DisplayName("색 분류기 파일 모양이 맞지 않으면 색 분류기를 끈다")
     void badColorModelOff() {
-        var p = new So400mAssistProperties("http://127.0.0.1:9", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y");
+        var p = new So400mAssistProperties("http://127.0.0.1:9", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", "");
         var a = new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()),
                 new ByteArrayResource("{\"families\":[\"red\"],\"weights\":[[1,0,0],[0,1,0]],\"bias\":[0]}".getBytes()));
         assertThat(a.colorEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("바꿀 목록(color-override): 비우면 늘, 있으면 목록 안의 계열만")
+    void overrideList() {
+        var all = new So400mAssist(new So400mAssistProperties("http://x", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", ""), null, null);
+        assertThat(all.overrides("orange")).isTrue();
+        var neutral = new So400mAssist(new So400mAssistProperties("http://x", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", "black, gray,navy"), null, null);
+        assertThat(neutral.overrides("gray")).isTrue();
+        assertThat(neutral.overrides("orange")).isFalse();
     }
 }

@@ -112,6 +112,20 @@ public class So400mAssist {
         return props != null && props.url() != null && !props.url().isBlank() && !colorWeights.isEmpty();
     }
 
+    /** 지금 색 방식의 답(family)을 So400m 색으로 바꿔도 되는지(clothes.so400m.color-override). */
+    public boolean overrides(String currentFamily) {
+        String list = props == null ? null : props.colorOverride();
+        if (list == null || list.isBlank()) {
+            return true;
+        }
+        for (String f : list.split(",")) {
+            if (f.trim().equals(currentFamily)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** So400m 벡터 → 색 계열(black…purple). 꺼져 있거나 벡터 길이가 다르면 null. */
     public String colorFamily(float[] v) {
         if (!colorEnabled() || v == null || v.length != colorWeights.getFirst().length) {

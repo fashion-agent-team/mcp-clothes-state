@@ -1,5 +1,6 @@
 package com.fashionagent.clothesstate.wear;
 
+import ai.onnxruntime.OrtException;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -136,7 +137,7 @@ public class ModelWearChecker implements AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() throws OrtException {
         for (OnnxBinaryClassifier c : new OnnxBinaryClassifier[] {tag, button, inside}) {
             if (c != null) {
                 c.close();

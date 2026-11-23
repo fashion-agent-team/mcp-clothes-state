@@ -34,7 +34,7 @@ class OnnxPatternParityTest {
         int same = 0;
         double maxDiff = 0;
         for (JsonNode e : expected) {
-            var img = ImageIO.read(new File(dir, e.get("file").asText()));
+            var img = ImageIO.read(new File(dir, e.get("file").asString()));
             float[] p = model.loraProbs(img, 0, 0, 1, 1);
             int top = 0;
             for (int i = 1; i < p.length; i++) {
@@ -43,7 +43,7 @@ class OnnxPatternParityTest {
             for (int i = 0; i < p.length; i++) {
                 maxDiff = Math.max(maxDiff, Math.abs(p[i] - e.get("probs").get(i).asDouble()));
             }
-            if (props.classes().get(top).equals(e.get("top").asText())) {
+            if (props.classes().get(top).equals(e.get("top").asString())) {
                 same++;
             }
         }
@@ -65,12 +65,12 @@ class OnnxPatternParityTest {
         int same = 0;
         double maxDiff = 0;
         for (JsonNode e : expected) {
-            var img = ImageIO.read(new File(dir, e.get("file").asText()));
+            var img = ImageIO.read(new File(dir, e.get("file").asString()));
             var r = model.classify(img, 0, 0, 1, 1);
             int top = props.classes().indexOf(r.top());
             double diff = Math.abs(r.confidence() - e.get("probs").get(top).asDouble());
             maxDiff = Math.max(maxDiff, diff);
-            if (r.top().equals(e.get("top").asText())) {
+            if (r.top().equals(e.get("top").asString())) {
                 same++;
             }
         }

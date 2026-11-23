@@ -379,7 +379,9 @@ docker run --rm -p 8093:8093 -e OPENAI_API_KEY ghcr.io/fashion-agent-team/mcp-cl
 
 - 모델 대신 가짜 검출기(`FakeDetector`, `FakeGarmentDetector`), 가짜 벡터 모델(`FakeEmbedder`, 입출력 모양만 같은 작은 ONNX `test/resources/models/tiny-embed.onnx`)과 가짜 GPT(`FakeVerifier`)를 써서 키·네트워크 없이 돕니다. 색 인식 모델(`color20_cnn.onnx`, 0.8MB)만은 `ColorModelTest`에서 실제로 돌립니다.
 - 다루는 것: 판단 기준과 `pendingHelper`(`ClothesInspectServiceTest`), MCP 서버로 도구 부르기(`McpServerTest`), YOLO 출력 풀기(`YoloOutputTest`), 옷 종류 모델(`OnnxGarmentDetectorTest`), 위치 말(`WhereTest`), 색(`GarmentColorTest`, `ColorModelTest`), 색 조합(`ColorHarmonyTest`), 사진 풀기(`ImagesTest`), GPT 요청·응답 모양(`OpenAiCropVerifierTest`), 옷 벡터 입력 만들기·정규화(`EmbedInputTest`, `OnnxGarmentEmbedderTest`), 무늬 판단·입력 만들기·GPT 무늬 요청(`OnnxPatternClassifierTest`, `OpenAiPatternVerifierTest`). 가짜 무늬 모델은 `FakePattern`, `FakePatternVerifier`.
-- PR과 `develop`·`main` 푸시 때 GitHub Actions(`.github/workflows/ci.yml`)가 Java 21로 같은 테스트를 돌립니다.
+- 도구 계층(`ClothesToolsTest`): 검사 서비스를 Mock으로 바꾸고, 도구가 값을 그대로 넘기는지와 오류 코드(`bad_request`, `no_garments`, `upstream_failed`)만 봅니다. REST 서버의 컨트롤러 테스트와 같은 자리입니다.
+- 파이썬 보조 서버 `so400m-embed`는 따로 돌립니다: `cd so400m-embed && pip install -r tests/requirements.txt && python -m pytest tests -q`(torch·모델 없이 가짜로 HTTP 계층과 좌우 평균·정규화를 봄).
+- PR과 `develop`·`main` 푸시 때 GitHub Actions(`.github/workflows/ci.yml`)가 Java 21로 같은 테스트를 돌리고, `so400m-embed` 파이썬 테스트도 돌립니다.
 
 ## 폴더 구성
 

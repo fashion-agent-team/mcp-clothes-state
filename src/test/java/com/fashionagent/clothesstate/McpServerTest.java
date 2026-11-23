@@ -96,10 +96,12 @@ class McpServerTest {
                         "tone", "mid", "position", "left", "defects", List.of()),
                 Map.of("id", "g2", "category", "bottom", "name", "바지", "colorFamily", "black", "colorName", "검정",
                         "tone", "dark")));
-        String out = text(client.callTool(new McpSchema.CallToolRequest("outfit_color_check", args)));
+        String out = text(client.callTool(
+                McpSchema.CallToolRequest.builder("outfit_color_check").arguments(args).build()));
         assertThat(out).contains("\"verdict\":\"bad\"", "\"rule\":\"occasion_formal\"", "\"swapGarmentId\":\"g1\"",
                 "빨강 니트는 격식 있는 자리에 튀어요").doesNotContain("error");
-        assertThat(text(client.callTool(new McpSchema.CallToolRequest("outfit_color_check", Map.of("garments", List.of())))))
+        assertThat(text(client.callTool(McpSchema.CallToolRequest.builder("outfit_color_check")
+                .arguments(Map.of("garments", List.of())).build())))
                 .contains("\"code\":\"no_garments\"");
     }
 
@@ -111,7 +113,7 @@ class McpServerTest {
     }
 
     private McpSchema.CallToolResult call(Map<String, Object> args) {
-        return client.callTool(new McpSchema.CallToolRequest("clothes_inspect", args));
+        return client.callTool(McpSchema.CallToolRequest.builder("clothes_inspect").arguments(args).build());
     }
 
     private static String text(McpSchema.CallToolResult result) {

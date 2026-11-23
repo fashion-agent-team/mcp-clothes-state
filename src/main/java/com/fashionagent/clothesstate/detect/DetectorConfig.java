@@ -43,7 +43,8 @@ public class DetectorConfig {
     com.fashionagent.clothesstate.embed.So400mAssist so400mAssist(
             com.fashionagent.clothesstate.embed.So400mAssistProperties props, ResourceLoader loader) {
         return new com.fashionagent.clothesstate.embed.So400mAssist(props,
-                props.probe() == null || props.probe().isBlank() ? null : loader.getResource(props.probe()));
+                props.probe() == null || props.probe().isBlank() ? null : loader.getResource(props.probe()),
+                props.colorModel() == null || props.colorModel().isBlank() ? null : loader.getResource(props.colorModel()));
     }
 
     /** 옷 무늬(8종). 모델 파일이 없으면 pattern 없이 응답. clothes.pattern.lora-model 파일이 있으면 두 모델을 섞어 씀. */

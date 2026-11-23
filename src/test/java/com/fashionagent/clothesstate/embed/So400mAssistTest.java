@@ -53,7 +53,7 @@ class So400mAssistTest {
     }
 
     private static So400mAssist assist(String url, long timeoutMs) {
-        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03);
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03, false, "");
         return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()));
     }
 
@@ -129,5 +129,35 @@ class So400mAssistTest {
         var im = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png));
         assertThat(im.getWidth()).isEqualTo(224);
         assertThat(im.getHeight()).isEqualTo(224);
+    }
+
+    static final String COLOR = """
+            {"families":["red","blue"],"weights":[[1,0,0],[0,1,0]],"bias":[0,0]}""";
+
+    private static So400mAssist colorAssist(String url, boolean on) {
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, on, "y");
+        return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()), new ByteArrayResource(COLOR.getBytes()));
+    }
+
+    @Test
+    @DisplayName("색 분류기는 설정(color=true)과 주소가 있을 때만 켜지고, 벡터로 색 계열을 고른다")
+    void colorClassifier() {
+        assertThat(colorAssist("http://127.0.0.1:9", false).colorEnabled()).isFalse();
+        assertThat(colorAssist("", true).colorEnabled()).isFalse();
+        var a = colorAssist("http://127.0.0.1:9", true);
+        assertThat(a.colorEnabled()).isTrue();
+        assertThat(a.colorFamily(new float[] {0.1f, 0.9f, 0f})).isEqualTo("blue");
+        assertThat(a.colorFamily(new float[] {0.9f, 0.1f, 0f})).isEqualTo("red");
+        assertThat(a.colorFamily(new float[] {1f, 0f})).isNull();
+        assertThat(a.colorFamily(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("색 분류기 파일 모양이 맞지 않으면 색 분류기를 끈다")
+    void badColorModelOff() {
+        var p = new So400mAssistProperties("http://127.0.0.1:9", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y");
+        var a = new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()),
+                new ByteArrayResource("{\"families\":[\"red\"],\"weights\":[[1,0,0],[0,1,0]],\"bias\":[0]}".getBytes()));
+        assertThat(a.colorEnabled()).isFalse();
     }
 }

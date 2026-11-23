@@ -321,11 +321,20 @@ public class ClothesInspectService {
         long tPatterns = System.nanoTime();
         boolean embed = embedder.ready();
         List<InspectResult.Garment> out = new ArrayList<>();
+        java.util.Map<Slot, String> so400mColors = so400mColors(img, slots);
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             s.id = "g" + (i + 1);
             BufferedImage piece = s.whole ? null : crop(img, s.box);
             GarmentColor.Result color = s.whole ? GarmentColor.of(img, m) : color(piece, m);
+            String fam = so400mColors.get(s);
+            if (fam != null && piece != null) {
+                GarmentColor.Result before = color;
+                color = GarmentColor.fromFamily(fam, GarmentColor.boxRgb(piece, m));
+                if (!before.colorFamily().equals(color.colorFamily())) {
+                    log.info("So400m 색: {} → {}", before.colorFamily(), color.colorFamily());
+                }
+            }
             String pattern = pats[i][0];
             String guess = patternGuess(pats[i]);
             GarmentColor.Result sub = null;
@@ -780,6 +789,39 @@ public class ClothesInspectService {
         return "graphic".equals(p[2]) ? "graphic" : "other";
     }
 
+    /**
+     * So400m 색 분류기가 켜져 있으면 옷마다 색 계열을 정합니다(사진 전체 한 벌은 빼고). 종류 다시 고르기에서 받은 벡터가 있으면
+     * 다시 묻지 않습니다. 시간이 넘었거나 실패한 옷은 빠지고, 그 옷은 지금 색 방식 그대로 씁니다.
+     * 근거: training/probe/README.md 색(2026-11-23) — 정답이 확실한 합성 옷(학습에 안 쓴 420장) 77.7→87.9%, 실제 확실한 옷 94.6→94.8%.
+     */
+    private java.util.Map<Slot, String> so400mColors(BufferedImage img, List<Slot> slots) {
+        java.util.Map<Slot, String> out = new java.util.HashMap<>();
+        if (!assist.colorEnabled()) {
+            return out;
+        }
+        long t = System.nanoTime();
+        List<Slot> ask = new ArrayList<>();
+        List<double[]> boxes = new ArrayList<>();
+        for (Slot s : slots) {
+            if (!s.whole && s.so400m == null) {
+                ask.add(s);
+                boxes.add(new double[] {s.box.x(), s.box.y(), s.box.w(), s.box.h()});
+            }
+        }
+        List<float[]> vs = assist.vectors(img, boxes);
+        for (int i = 0; i < ask.size(); i++) {
+            ask.get(i).so400m = vs.get(i);
+        }
+        for (Slot s : slots) {
+            String fam = s.whole ? null : assist.colorFamily(s.so400m);
+            if (fam != null) {
+                out.put(s, fam);
+            }
+        }
+        log.info("So400m 색 {}벌 중 {}벌(새로 물은 것 {}벌), {}ms", slots.size(), out.size(), ask.size(), ms(t, System.nanoTime()));
+        return out;
+    }
+
     /** 옷 박스 이미지 벡터. 실패해도 검사 결과는 돌려주도록 null(로그만). */
     private float[] embed(BufferedImage img, InspectResult.Box b) {
         try {
@@ -942,11 +984,12 @@ public class ClothesInspectService {
         }
         if (!askSlots.isEmpty()) {
             long t = System.nanoTime();
-            List<String> picks = assist.pick(img, askBoxes);
+            List<float[]> vs = assist.vectors(img, askBoxes);
             int got = 0;
             for (int i = 0; i < askSlots.size(); i++) {
                 Slot s = askSlots.get(i);
-                String big = picks.get(i);
+                s.so400m = vs.get(i);
+                String big = s.so400m == null ? null : assist.best(s.so400m);
                 got += big == null ? 0 : 1;
                 changed += applyPick(s, big != null ? big : s.pendingPick, true);
                 s.pendingPick = null;
@@ -1148,6 +1191,8 @@ public class ClothesInspectService {
         float[] embedding;
         /** So400m에게 다시 묻는 동안 쓸 지금 결과(답이 없으면 이걸 씀). */
         String pendingPick;
+        /** 종류 다시 고르기에서 받은 So400m 벡터(색 판정에 다시 씀). 안 받았으면 null. */
+        float[] so400m;
         final InspectResult.Box box;
         final Double confidence;
         final boolean whole;

@@ -24,5 +24,9 @@ public record So400mAssistProperties(
         /** 사진 한 장에서 다시 묻는 옷 수 상한. */
         @DefaultValue("3") int maxBoxes,
         /** 박스를 사방으로 넓히는 비율(서버 벡터와 같음). */
-        @DefaultValue("0.03") double margin) {
+        @DefaultValue("0.03") double margin,
+        /** true면 모든 옷의 색 계열을 So400m 벡터 + 색 분류기로 정함(기본 끔). 실패·시간 초과면 지금 색 그대로. */
+        @DefaultValue("false") boolean color,
+        /** So400m 색 분류기(선형, 14계열). */
+        @DefaultValue("classpath:models/garment-color-so400m.json") String colorModel) {
 }

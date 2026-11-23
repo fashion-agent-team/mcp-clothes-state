@@ -44,3 +44,18 @@ jobs:
           name: test-report
           path: build/reports/tests/test
           retention-days: 7
+
+  # 젯슨 GPU 보조 서버(so400m-embed, 파이썬). 진짜 모델·torch 없이 가짜로 HTTP 계층과 계산만 봅니다.
+  so400m-embed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: so400m-embed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r tests/requirements.txt
+      - run: python -m pytest tests -q

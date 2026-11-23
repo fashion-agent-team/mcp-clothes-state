@@ -47,3 +47,9 @@ mcp-clothes-state는 모델 서버 젯슨에, so400m-embed는 GPU 메모리에 �
 curl -s localhost:8096/health
 python3 -c "import base64,json,urllib.request;b=base64.b64encode(open('shirt.jpg','rb').read()).decode();print(json.loads(urllib.request.urlopen(urllib.request.Request('http://localhost:8096/embed',json.dumps({'imageBase64':b}).encode(),{'content-type':'application/json'})).read())['ms'])"
 ```
+
+## 테스트
+```bash
+pip install -r tests/requirements.txt && python -m pytest tests -q
+```
+젯슨용 torch와 모델 없이 돌아요(가짜 torch·가짜 이미지 탑). `/health`·`/embed`의 503/400/422, 2MB 제한, 벡터 길이 1, 좌우를 뒤집어도 같은 벡터인지를 봐요.

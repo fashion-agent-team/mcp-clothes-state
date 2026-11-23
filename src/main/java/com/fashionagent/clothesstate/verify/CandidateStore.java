@@ -4,14 +4,21 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import javax.imageio.ImageIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * GPT가 얼룩·찢어짐이라고 한 조각만 다시 학습할 후보로 저장합니다(정지원 2026-11-09 "얼룩 사진만 저장").
@@ -26,9 +33,17 @@ public class CandidateStore {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GptCheckProperties props;
+    private final Clock clock;
+    private final JsonMapper json = JsonMapper.builder().build();
 
+    @Autowired
     public CandidateStore(GptCheckProperties props) {
+        this(props, Clock.system(KST));
+    }
+
+    CandidateStore(GptCheckProperties props, Clock clock) {
         this.props = props;
+        this.clock = clock.withZone(KST);
     }
 
     public boolean enabled() {
@@ -37,28 +52,14 @@ public class CandidateStore {
 
     /** 저장한 파일 경로, 저장 안 했으면 null. 실패해도 검사는 계속합니다. */
     public Path save(BufferedImage crop, String modelKind, double modelConfidence, CropVerifier.Verdict v) {
-        if (!enabled()) {
-            return null;
-        }
-        try {
-            LocalDate today = LocalDate.now(KST);
-            Path dir = Path.of(props.candidateDir(), today.toString());
-            if (Files.notExists(dir)) {
-                prune(today); // 하루 한 번(새 날짜 폴더를 만들 때) 보관 기간이 지난 폴더를 지움
-            }
-            Files.createDirectories(dir);
-            String id = UUID.randomUUID().toString();
-            Path jpg = dir.resolve(id + ".jpg");
-            ImageIO.write(crop, "jpg", jpg.toFile());
-            String meta = String.format(Locale.ROOT,
-                    "{\"label\":\"%s\",\"modelKind\":\"%s\",\"modelConfidence\":%.3f,\"gptConfidence\":%.3f,\"gptModel\":\"%s\",\"reviewed\":false}%n",
-                    v.label(), modelKind, modelConfidence, v.confidence(), v.model());
-            Files.writeString(dir.resolve(id + ".json"), meta);
-            return jpg;
-        } catch (IOException | RuntimeException e) {
-            log.warn("학습 후보 저장 실패: {}", e.getClass().getSimpleName());
-            return null;
-        }
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("label", v.label());
+        meta.put("modelKind", modelKind);
+        meta.put("modelConfidence", round(modelConfidence));
+        meta.put("gptConfidence", round(v.confidence()));
+        meta.put("gptModel", v.model());
+        meta.put("reviewed", false);
+        return write("", crop, meta, "학습 후보");
     }
 
     /**
@@ -67,28 +68,15 @@ public class CandidateStore {
      */
     public Path savePattern(BufferedImage garment, String gptPattern, double gptConfidence, String gptModel,
             String modelTop, double modelConfidence) {
-        if (!enabled()) {
-            return null;
-        }
-        try {
-            LocalDate today = LocalDate.now(KST);
-            Path dir = Path.of(props.candidateDir(), today.toString());
-            if (Files.notExists(dir)) {
-                prune(today);
-            }
-            Files.createDirectories(dir);
-            String id = "pattern-" + UUID.randomUUID();
-            Path jpg = dir.resolve(id + ".jpg");
-            ImageIO.write(garment, "jpg", jpg.toFile());
-            String meta = String.format(Locale.ROOT,
-                    "{\"task\":\"pattern\",\"label\":\"%s\",\"gptConfidence\":%.3f,\"gptModel\":\"%s\",\"modelTop\":\"%s\",\"modelConfidence\":%.3f,\"reviewed\":false}%n",
-                    gptPattern, gptConfidence, gptModel, modelTop, modelConfidence);
-            Files.writeString(dir.resolve(id + ".json"), meta);
-            return jpg;
-        } catch (IOException | RuntimeException e) {
-            log.warn("무늬 학습 후보 저장 실패: {}", e.getClass().getSimpleName());
-            return null;
-        }
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("task", "pattern");
+        meta.put("label", gptPattern);
+        meta.put("gptConfidence", round(gptConfidence));
+        meta.put("gptModel", gptModel);
+        meta.put("modelTop", modelTop);
+        meta.put("modelConfidence", round(modelConfidence));
+        meta.put("reviewed", false);
+        return write("pattern-", garment, meta, "무늬 학습 후보");
     }
 
     /**
@@ -97,27 +85,58 @@ public class CandidateStore {
      */
     public Path saveWear(BufferedImage piece, String kind, boolean gptSaysMistake, double gptConfidence, String gptModel,
             double modelProbability, String modelVersion) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("task", "wear");
+        meta.put("kind", kind);
+        meta.put("gptMistake", gptSaysMistake);
+        meta.put("gptConfidence", round(gptConfidence));
+        meta.put("gptModel", gptModel);
+        meta.put("modelProbability", round(modelProbability));
+        meta.put("modelVersion", modelVersion);
+        meta.put("reviewed", false);
+        String safeKind = kind == null ? "unknown" : kind.replaceAll("[^A-Za-z0-9_-]", "_");
+        return write("wear-" + safeKind + "-", piece, meta, "옷 실수 학습 후보");
+    }
+
+    /**
+     * 오늘 날짜 폴더에 그림(.jpg)과 같은 이름의 .json을 씁니다. JSON은 JsonMapper로 만들어 GPT 답에 따옴표가 섞여도 깨지지 않습니다.
+     * 새 날짜 폴더를 만들 때도 보관 기간 지난 폴더를 지웁니다(매일 새벽 지우기와 별도로).
+     */
+    private Path write(String prefix, BufferedImage image, Map<String, Object> meta, String what) {
         if (!enabled()) {
             return null;
         }
         try {
-            LocalDate today = LocalDate.now(KST);
+            LocalDate today = LocalDate.now(clock);
             Path dir = Path.of(props.candidateDir(), today.toString());
             if (Files.notExists(dir)) {
                 prune(today);
             }
             Files.createDirectories(dir);
-            String id = "wear-" + kind + "-" + UUID.randomUUID();
+            String id = prefix + UUID.randomUUID();
             Path jpg = dir.resolve(id + ".jpg");
-            ImageIO.write(piece, "jpg", jpg.toFile());
-            String meta = String.format(Locale.ROOT,
-                    "{\"task\":\"wear\",\"kind\":\"%s\",\"gptMistake\":%s,\"gptConfidence\":%.3f,\"gptModel\":\"%s\",\"modelProbability\":%.3f,\"modelVersion\":\"%s\",\"reviewed\":false}%n",
-                    kind, gptSaysMistake, gptConfidence, gptModel, modelProbability, modelVersion);
-            Files.writeString(dir.resolve(id + ".json"), meta);
+            ImageIO.write(image, "jpg", jpg.toFile());
+            Files.writeString(dir.resolve(id + ".json"), json.writeValueAsString(meta) + System.lineSeparator());
             return jpg;
         } catch (IOException | RuntimeException e) {
-            log.warn("옷 실수 학습 후보 저장 실패: {}", e.getClass().getSimpleName());
+            log.warn("{} 저장 실패: {}", what, e.getClass().getSimpleName());
             return null;
+        }
+    }
+
+    private static double round(double v) {
+        return Math.round(v * 1000) / 1000.0;
+    }
+
+    /**
+     * 매일 새벽 3시 30분(한국 시각)과 서버를 켤 때 보관 기간 지난 날짜 폴더를 지웁니다.
+     * 예전에는 새 후보를 저장할 때만 지워서, 저장이 없는 동안은 30일이 지나도 사진이 남았습니다(2026-11-20 점검).
+     */
+    @Scheduled(cron = "${clothes.gpt-check.prune-cron:0 30 3 * * *}", zone = "Asia/Seoul")
+    @EventListener(ApplicationReadyEvent.class)
+    public void pruneNow() {
+        if (enabled()) {
+            prune(LocalDate.now(clock));
         }
     }
 

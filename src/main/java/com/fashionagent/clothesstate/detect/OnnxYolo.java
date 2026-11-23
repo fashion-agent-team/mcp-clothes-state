@@ -25,7 +25,6 @@ public class OnnxYolo implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(OnnxYolo.class);
 
-    private final String label;
     private final String[] kinds;
     private final int size;
     private final double nmsIou;
@@ -43,7 +42,6 @@ public class OnnxYolo implements AutoCloseable {
 
     public OnnxYolo(Resource model, int size, double nmsIou, String[] kinds, String label, YoloOutput.UnsurePair unsure) {
         this.unsure = unsure;
-        this.label = label;
         this.kinds = kinds;
         this.size = size;
         this.nmsIou = nmsIou;

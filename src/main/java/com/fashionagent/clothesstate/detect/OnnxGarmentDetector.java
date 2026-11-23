@@ -1,5 +1,6 @@
 package com.fashionagent.clothesstate.detect;
 
+import ai.onnxruntime.OrtException;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -69,7 +70,7 @@ public class OnnxGarmentDetector implements GarmentDetector, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() throws OrtException {
         yolo.close();
     }
 }

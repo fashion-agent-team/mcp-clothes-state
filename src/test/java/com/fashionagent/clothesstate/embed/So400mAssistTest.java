@@ -53,7 +53,7 @@ class So400mAssistTest {
     }
 
     private static So400mAssist assist(String url, long timeoutMs) {
-        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03);
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03, false, "", "");
         return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()));
     }
 
@@ -105,5 +105,69 @@ class So400mAssistTest {
         assertThat(a.pick(IMG, List.<double[]>of(new double[] {0.1, 0.1, 0.5, 0.5}))).containsExactly((String) null);
         var b = assist("http://127.0.0.1:9", 300);
         assertThat(b.pick(IMG, List.<double[]>of(new double[] {0.1, 0.1, 0.5, 0.5}))).containsExactly((String) null);
+    }
+
+    @Test
+    @DisplayName("박스 조각은 측정 때와 같게 224×224 PNG(무손실)로 보낸다")
+    void sendsLosslessPng() throws Exception {
+        var seen = new java.util.concurrent.atomic.AtomicReference<String>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/embed", ex -> {
+            seen.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] b = "{\"vector\":[0,1,0]}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, b.length);
+            ex.getResponseBody().write(b);
+            ex.close();
+        });
+        server.start();
+        var a = assist("http://127.0.0.1:" + server.getAddress().getPort(), 800);
+        assertThat(a.pick(IMG, List.<double[]>of(new double[] {0.1, 0.1, 0.5, 0.5}))).containsExactly("dress");
+        String b64 = seen.get().replaceAll(".*\"imageBase64\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+        byte[] png = java.util.Base64.getDecoder().decode(b64);
+        assertThat(png[1]).isEqualTo((byte) 'P');
+        assertThat(png[2]).isEqualTo((byte) 'N');
+        var im = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png));
+        assertThat(im.getWidth()).isEqualTo(224);
+        assertThat(im.getHeight()).isEqualTo(224);
+    }
+
+    static final String COLOR = """
+            {"families":["red","blue"],"weights":[[1,0,0],[0,1,0]],"bias":[0,0]}""";
+
+    private static So400mAssist colorAssist(String url, boolean on) {
+        var p = new So400mAssistProperties(url, "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, on, "y", "");
+        return new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()), new ByteArrayResource(COLOR.getBytes()));
+    }
+
+    @Test
+    @DisplayName("색 분류기는 설정(color=true)과 주소가 있을 때만 켜지고, 벡터로 색 계열을 고른다")
+    void colorClassifier() {
+        assertThat(colorAssist("http://127.0.0.1:9", false).colorEnabled()).isFalse();
+        assertThat(colorAssist("", true).colorEnabled()).isFalse();
+        var a = colorAssist("http://127.0.0.1:9", true);
+        assertThat(a.colorEnabled()).isTrue();
+        assertThat(a.colorFamily(new float[] {0.1f, 0.9f, 0f})).isEqualTo("blue");
+        assertThat(a.colorFamily(new float[] {0.9f, 0.1f, 0f})).isEqualTo("red");
+        assertThat(a.colorFamily(new float[] {1f, 0f})).isNull();
+        assertThat(a.colorFamily(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("색 분류기 파일 모양이 맞지 않으면 색 분류기를 끈다")
+    void badColorModelOff() {
+        var p = new So400mAssistProperties("http://127.0.0.1:9", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", "");
+        var a = new So400mAssist(p, new ByteArrayResource(PROBE.getBytes()),
+                new ByteArrayResource("{\"families\":[\"red\"],\"weights\":[[1,0,0],[0,1,0]],\"bias\":[0]}".getBytes()));
+        assertThat(a.colorEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("바꿀 목록(color-override): 비우면 늘, 있으면 목록 안의 계열만")
+    void overrideList() {
+        var all = new So400mAssist(new So400mAssistProperties("http://x", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", ""), null, null);
+        assertThat(all.overrides("orange")).isTrue();
+        var neutral = new So400mAssist(new So400mAssistProperties("http://x", "x", Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, true, "y", "black, gray,navy"), null, null);
+        assertThat(neutral.overrides("gray")).isTrue();
+        assertThat(neutral.overrides("orange")).isFalse();
     }
 }

@@ -69,6 +69,11 @@ clothes:
     max-confidence: 0.7
     max-gap: 0.015
     max-boxes: 3
+    # true면 모든 옷의 색 계열을 So400m 색 분류기로 정함(기본 끔, url이 있어야 동작). 근거 training/probe/README.md 색(2026-11-23)
+    color: ${CLOTHES_SO400M_COLOR:false}
+    color-model: ${CLOTHES_SO400M_COLOR_MODEL:classpath:models/garment-color-so400m.json}
+    # 지금 색 방식이 이 계열로 답했을 때만 So400m 색으로 바꿈(비우면 늘). 분명한 유채색(주황 등)은 지금 방식 그대로
+    color-override: ${CLOTHES_SO400M_COLOR_OVERRIDE:black,white,gray,navy,brown,khaki,beige}
   # 애매한 결함 조각만 GPT에게 물음. 키는 환경 변수로만(비면 묻지 않고 pendingHelper로 돌려줌)
   gpt:
     api-key: ${OPENAI_API_KEY:}

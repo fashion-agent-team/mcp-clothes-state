@@ -695,7 +695,7 @@ class ClothesInspectServiceTest {
                 {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
         return new com.fashionagent.clothesstate.embed.So400mAssist(
                 new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:" + server.getAddress().getPort(),
-                        "x", java.time.Duration.ofMillis(800), 0.7, 0.015, 3, 0.03),
+                        "x", java.time.Duration.ofMillis(800), 0.7, 0.015, 3, 0.03, false, "", ""),
                 new org.springframework.core.io.ByteArrayResource(probe.getBytes()));
     }
 
@@ -758,10 +758,101 @@ class ClothesInspectServiceTest {
         garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
         service.setAssist(new com.fashionagent.clothesstate.embed.So400mAssist(
                 new com.fashionagent.clothesstate.embed.So400mAssistProperties("http://127.0.0.1:9", "x",
-                        java.time.Duration.ofMillis(300), 0.7, 0.015, 3, 0.03),
+                        java.time.Duration.ofMillis(300), 0.7, 0.015, 3, 0.03, false, "", ""),
                 new org.springframework.core.io.ByteArrayResource(probe.getBytes())));
         try {
             assertThat(service.inspect(photo, "worn", "front").garments().getFirst().category()).isEqualTo("top");
+        } finally {
+            service.setAssist(null);
+        }
+    }
+
+    /** So400m 색 시험용: 종류 probe(shirt·dress)와 색 분류기(red·blue)를 함께 켠 보조 경로. */
+    private com.fashionagent.clothesstate.embed.So400mAssist colorAssist(String url, long timeoutMs) {
+        return colorAssist(url, timeoutMs, "");
+    }
+
+    private com.fashionagent.clothesstate.embed.So400mAssist colorAssist(String url, long timeoutMs, String override) {
+        String probe = """
+                {"prompts":[{"name":"shirt","vector":[1,0,0]},{"name":"dress","vector":[0,1,0]}]}""";
+        String color = """
+                {"families":["red","blue"],"weights":[[1,0,0],[0,1,0]],"bias":[0,0]}""";
+        return new com.fashionagent.clothesstate.embed.So400mAssist(
+                new com.fashionagent.clothesstate.embed.So400mAssistProperties(url, "x",
+                        java.time.Duration.ofMillis(timeoutMs), 0.7, 0.015, 3, 0.03, true, "y", override),
+                new org.springframework.core.io.ByteArrayResource(probe.getBytes()),
+                new org.springframework.core.io.ByteArrayResource(color.getBytes()));
+    }
+
+    @Test
+    @DisplayName("So400m 색: 켜면 옷 색 계열을 So400m 색 분류기로 정하고, 종류 다시 고르기에서 받은 벡터를 다시 쓴다")
+    void so400mColorReusesVector() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            embedder.ready = true;
+            embedder.textCheck = shirtDressCheck();
+            embedder.vectors = List.of(new float[] {0.700f, 0.695f, 0f});
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.5, 0.2, 0.1, 0.5, 0.8));
+            service.setAssist(colorAssist("http://127.0.0.1:" + server.getAddress().getPort(), 800));
+            var g = service.inspect(photo, "worn", "front").garments().getFirst();
+            assertThat(g.category()).isEqualTo("dress");
+            assertThat(g.colorFamily()).isEqualTo("blue");
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 색: 종류가 확실한 옷도 색은 So400m에 묻는다")
+    void so400mColorAsksConfidentGarment() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.95, 0.2, 0.1, 0.5, 0.8));
+            service.setAssist(colorAssist("http://127.0.0.1:" + server.getAddress().getPort(), 800));
+            var g = service.inspect(photo, "worn", "front").garments().getFirst();
+            assertThat(g.colorFamily()).isEqualTo("blue");
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 색: 지금 색이 바꿀 목록(color-override)에 없으면 지금 색 그대로(분명한 유채색 보호)")
+    void so400mColorRespectsOverrideList() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = dressServer(calls);
+        try {
+            garments.ready = true;
+            garments.next = List.of(new Detection("tshirt", 0.95, 0.2, 0.1, 0.5, 0.8));
+            String before = service.inspect(photo, "worn", "front").garments().getFirst().colorFamily();
+            String other = "purple".equals(before) ? "pink" : "purple";
+            service.setAssist(colorAssist("http://127.0.0.1:" + server.getAddress().getPort(), 800, other));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().colorFamily()).isEqualTo(before);
+            service.setAssist(colorAssist("http://127.0.0.1:" + server.getAddress().getPort(), 800, before + "," + other));
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().colorFamily()).isEqualTo("blue");
+        } finally {
+            server.stop(0);
+            service.setAssist(null);
+        }
+    }
+
+    @Test
+    @DisplayName("So400m 색: 서버가 없으면 지금 색 그대로")
+    void so400mColorDownKeepsCurrent() {
+        garments.ready = true;
+        garments.next = List.of(new Detection("tshirt", 0.95, 0.2, 0.1, 0.5, 0.8));
+        String before = service.inspect(photo, "worn", "front").garments().getFirst().colorFamily();
+        service.setAssist(colorAssist("http://127.0.0.1:9", 300));
+        try {
+            assertThat(service.inspect(photo, "worn", "front").garments().getFirst().colorFamily()).isEqualTo(before);
         } finally {
             service.setAssist(null);
         }

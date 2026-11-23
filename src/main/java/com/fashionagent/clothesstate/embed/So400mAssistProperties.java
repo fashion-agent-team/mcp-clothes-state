@@ -24,5 +24,14 @@ public record So400mAssistProperties(
         /** 사진 한 장에서 다시 묻는 옷 수 상한. */
         @DefaultValue("3") int maxBoxes,
         /** 박스를 사방으로 넓히는 비율(서버 벡터와 같음). */
-        @DefaultValue("0.03") double margin) {
+        @DefaultValue("0.03") double margin,
+        /** true면 모든 옷의 색 계열을 So400m 벡터 + 색 분류기로 정함(기본 끔). 실패·시간 초과면 지금 색 그대로. */
+        @DefaultValue("false") boolean color,
+        /** So400m 색 분류기(선형, 14계열). */
+        @DefaultValue("classpath:models/garment-color-so400m.json") String colorModel,
+        /**
+         * 지금 색 방식이 이 계열로 답했을 때만 So400m 색으로 바꿈(쉼표로 나눔, 비우면 늘 바꿈). 지금 방식이 헷갈리는 무채색·어두운 색만.
+         * 2026-11-23 배포 시험: 늘 바꾸면 주황 티셔츠(CC0)를 초록으로 바꿔서, 분명한 유채색은 지금 방식을 믿음.
+         */
+        @DefaultValue("black,white,gray,navy,brown,khaki,beige") String colorOverride) {
 }

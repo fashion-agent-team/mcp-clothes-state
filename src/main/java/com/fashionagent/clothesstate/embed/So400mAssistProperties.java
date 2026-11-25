@@ -33,5 +33,5 @@ public record So400mAssistProperties(
          * 지금 색 방식이 이 계열로 답했을 때만 So400m 색으로 바꿈(쉼표로 나눔, 비우면 늘 바꿈). 지금 방식이 헷갈리는 무채색·어두운 색만.
          * 2026-11-23 배포 시험: 늘 바꾸면 주황 티셔츠(CC0)를 초록으로 바꿔서, 분명한 유채색은 지금 방식을 믿음.
          */
-        @DefaultValue("black,white,gray,navy,brown,khaki,beige") String colorOverride) {
+        @DefaultValue("black,white,gray,navy,blue,brown,khaki,beige") String colorOverride) {
 }

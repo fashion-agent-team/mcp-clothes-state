@@ -13,3 +13,6 @@ data/
 !.env.example
 __pycache__/
 .pytest_cache/
+
+# 의존성 검사(deps.yml)가 CI에서 잠깐 만드는 파일
+gradle.lockfile

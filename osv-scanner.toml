@@ -1,0 +1,13 @@
+# 의존성 취약점 검사(osv-scanner) 예외 목록. 예외는 이유와 만료일을 꼭 적습니다.
+
+# so400m-embed는 젯슨 L4T r36 베이스 이미지(파이썬 3.10)에서 돕니다.
+# pillow 13.0.0부터 파이썬 3.11 이상만 지원해서, 3.10에서 받을 수 있는 가장 새 버전이 12.3.0입니다.
+# 12.3.0에 남은 취약점은 13.0.0에서만 고쳐졌습니다. 베이스 이미지를 파이썬 3.11 이상으로 올리면 이 예외를 지웁니다.
+# 그동안 이 서버는 젯슨 내부(clothes-state)에서만 부르고, 옷 부분만 자른 JPEG/PNG만 받습니다.
+[[PackageOverrides]]
+name = "pillow"
+version = "12.3.0"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2027-02-28
+reason = "젯슨 파이썬 3.10에서 받을 수 있는 최신 pillow. 13.0.0(파이썬 3.11+)으로 올릴 때까지 예외"

@@ -26,6 +26,7 @@ ARCH = os.environ.get("SO400M_ARCH", "ViT-SO400M-14-SigLIP2")
 WEIGHTS = os.environ.get("SO400M_WEIGHTS", "")
 SIZE = 224
 MAX_BYTES = 2 * 1024 * 1024
+ALLOWED_FORMATS = ("PNG", "JPEG")
 
 app = FastAPI(title="so400m-embed")
 _lock = threading.Lock()  # GPU는 한 번에 하나씩
@@ -103,7 +104,10 @@ def embed(req: EmbedRequest):
         raw = base64.b64decode(req.imageBase64, validate=True)
         if len(raw) > MAX_BYTES:
             raise ValueError("too large")
-        im = Image.open(io.BytesIO(raw))
+        # clothes-state는 PNG, 테스트·예전 호출은 JPEG만 보냅니다. 다른 형식의 디코더는 아예 열지 않아
+        # pillow 디코더 취약점(osv-scanner.toml 예외 참고)이 닿는 길을 줄입니다.
+        im = Image.open(io.BytesIO(raw), formats=ALLOWED_FORMATS)
+        im.load()
     except Exception:
         raise HTTPException(400, "bad image")
     t = time.time()

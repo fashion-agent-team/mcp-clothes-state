@@ -83,6 +83,32 @@ def test_embed_imageBase64가_없으면_422(client, loaded):
     assert client.post("/embed", json={}).status_code == 422
 
 
+def encoded(im: Image.Image, fmt: str) -> str:
+    buf = io.BytesIO()
+    im.save(buf, fmt)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_embed_PNG도_받는다(client, loaded):
+    """clothes-state(So400mAssist)는 PNG로 보낸다."""
+    res = client.post("/embed", json={"imageBase64": encoded(two_tone(), "PNG")})
+    assert res.status_code == 200
+
+
+@pytest.mark.parametrize("fmt", ["GIF", "BMP", "TIFF"])
+def test_embed_PNG_JPEG가_아닌_형식은_400(client, loaded, fmt):
+    """쓰지 않는 디코더는 열지 않는다(pillow 디코더 취약점 줄이기)."""
+    res = client.post("/embed", json={"imageBase64": encoded(two_tone(), fmt)})
+    assert res.status_code == 400
+    assert res.json()["detail"] == "bad image"
+
+
+def test_embed_중간에_잘린_JPEG는_400(client, loaded):
+    raw = base64.b64decode(jpeg_b64(two_tone()))
+    res = client.post("/embed", json={"imageBase64": base64.b64encode(raw[: len(raw) // 2]).decode()})
+    assert res.status_code == 400
+
+
 def test_embed_정상_사진은_길이_1인_벡터와_ms(client, loaded):
     res = client.post("/embed", json={"imageBase64": jpeg_b64(two_tone())})
     assert res.status_code == 200

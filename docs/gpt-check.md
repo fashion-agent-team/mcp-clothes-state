@@ -29,15 +29,17 @@ GPT를 못 쓰는 경우는 네 가지예요.
 
 ## 저장하는 것
 
-- GPT가 얼룩·찢어짐이라고 한 조각만 `clothes.gpt.candidate-dir`(기본값 `data/train-candidates/날짜/`)에 저장합니다.
+- GPT가 얼룩·찢어짐이라고 한 조각을 `clothes.gpt.candidate-dir`(기본값 `data/train-candidates/날짜/`)에 저장합니다. 2026-11-16부터는 옷 실수(wear)를 GPT에게 물은 조각도 같은 곳에 저장합니다(`WearLearnProperties`).
   - 파일은 `아이디.jpg`와 `아이디.json`입니다.
   - json에는 GPT가 본 종류, 우리 모델 확신도, GPT 확신도, 모델 이름, `reviewed:false`를 적습니다.
   - 사용자 정보는 넣지 않습니다.
+  - 옷 실수 조각은 `wear-종류-아이디.jpg`입니다. GPT가 실수라고 한 것, 모델과 GPT가 엇갈린 것, 모델이 애매한 것을 저장하고, 모델과 GPT가 같이 정상이라고 한 것은 `saveAgreeRate`(기본 0.1)만큼만 저장합니다.
+  - 무늬 모델이 몰라서 GPT에게 물은 내려놓은 옷도 `pattern-아이디.jpg`로 저장합니다(2026-11-11, `CandidateStore.savePattern`).
 - 바로 학습하지 않습니다.
   1. 사람이 확인해서 `reviewed`를 true로 바꾼 것만 다음 학습에 넣습니다.
   2. 다시 학습한 모델은 시험 점수가 오를 때만 바꿉니다.
 - `data/`는 .gitignore에 들어 있어 레포에 올라가지 않습니다.
-- 보관 기간은 30일(`clothes.gpt.retention-days`)입니다. 새 날짜 폴더를 만들 때 30일이 지난 날짜 폴더를 지웁니다.
+- 보관 기간은 30일(`clothes.gpt.retention-days`)입니다. 매일 새벽 3시 30분(한국 시각)과 서버를 켤 때 30일이 지난 날짜 폴더를 지웁니다(`CandidateStore.pruneNow`, 2026-11-20 전에는 새 날짜 폴더를 만들 때만 지웠습니다).
 
 ## 사용자 동의 (앱 처음 쓸 때 한 번, 정지원 11-09)
 
